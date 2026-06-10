@@ -107,7 +107,9 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
       }
       // Plain Ctrl+V must also go through pasteSmart in claude terminals, or a
       // clipboard image would silently paste as nothing (xterm only sees text).
+      // preventDefault, or Chromium's native paste would insert the text twice.
       if (ctrl && key === 'v' && (shift || isClaude)) {
+        ev.preventDefault()
         void pasteSmart(term)
         return false
       }

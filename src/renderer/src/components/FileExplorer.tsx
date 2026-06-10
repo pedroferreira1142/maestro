@@ -231,6 +231,64 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
           ))}
         </div>
       )}
+      {attachments.length > 0 && (
+        <div className="attachments">
+          <div className="attachments-header">Attached images</div>
+          <div className="attachments-grid">
+            {attachments.map((a) => (
+              <div
+                key={a.fileName}
+                className="attachment-thumb"
+                title={`${a.fileName} — ${timeAgo(a.at)} ago`}
+                onClick={() => openPreview(a)}
+              >
+                {a.thumbDataUrl ? (
+                  <img src={a.thumbDataUrl} alt={a.fileName} />
+                ) : (
+                  <span className="attachment-broken">🖼</span>
+                )}
+                <span className="attachment-age">{timeAgo(a.at)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {preview && (
+        <div className="attachment-lightbox" onClick={closePreview}>
+          <div className="attachment-lightbox-card" onClick={(ev) => ev.stopPropagation()}>
+            <div className="attachment-lightbox-img">
+              {previewUrl ? <img src={previewUrl} alt={preview.fileName} /> : <span>…</span>}
+            </div>
+            <div className="attachment-lightbox-meta" title={preview.absPath}>
+              {preview.fileName} · {(preview.size / 1024).toFixed(0)} KB · {timeAgo(preview.at)}{' '}
+              ago
+            </div>
+            <div className="row">
+              <button
+                className="btn"
+                onClick={() => {
+                  insertIntoTerminal(preview)
+                  closePreview()
+                }}
+              >
+                Paste path in terminal
+              </button>
+              <button
+                className="btn"
+                onClick={() => window.api.clipboardWrite(preview.absPath)}
+              >
+                Copy path
+              </button>
+              <button className="btn" onClick={() => removeAttachment(preview)}>
+                Delete
+              </button>
+              <button className="btn ghost" onClick={closePreview}>
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {menu && (
         <div className="context-menu" style={{ left: menu.x, top: menu.y }}>
           {!menu.isDir && (
