@@ -13,6 +13,7 @@ import type {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  UsageSnapshot,
   WorktreeInfo,
   WorktreeTaskState
 } from './types'
@@ -111,6 +112,8 @@ export interface Api {
   deleteAttachment(sessionId: string, fileName: string): Promise<void>
   /** Absolute path of a dragged-in File (Electron webUtils); '' when it has none. */
   pathForFile(file: File): string
+  // usage (token cost aggregated from Claude Code transcripts)
+  getUsage(): Promise<UsageSnapshot>
 
   // misc
   openExternal(url: string): void

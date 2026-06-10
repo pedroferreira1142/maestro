@@ -98,6 +98,7 @@ const api: Api = {
       return ''
     }
   },
+  getUsage: () => ipcRenderer.invoke('usage:get'),
 
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),

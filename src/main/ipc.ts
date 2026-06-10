@@ -15,6 +15,7 @@ import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
 import { SessionManager } from './SessionManager'
+import { UsageService } from './UsageService'
 
 /** Tokenize a command template respecting double quotes. */
 function tokenize(template: string): string[] {
@@ -160,6 +161,9 @@ export function registerIpc(
   ipcMain.handle('attachments:delete', (_e, id: string, fileName: string) =>
     deleteAttachment(id, fileName)
   )
+  // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
+  const usage = new UsageService()
+  ipcMain.handle('usage:get', () => usage.snapshot())
 
   // --- misc ---
   ipcMain.on('shell:openExternal', (_e, url: string) => {

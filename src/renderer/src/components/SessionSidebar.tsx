@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { SessionInfo, SessionStatus } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
+import { UsageWidget } from './UsageWidget'
 
 const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
@@ -166,6 +167,7 @@ export function SessionSidebar(): JSX.Element {
           <SessionEntry key={s.config.id} session={s} index={i} />
         ))}
       </div>
+      <UsageWidget />
     </div>
   )
 }

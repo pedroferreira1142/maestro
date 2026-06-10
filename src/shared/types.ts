@@ -191,6 +191,41 @@ export type FileContent =
   | { kind: 'image'; dataUrl: string; size: number }
   | { kind: 'binary'; size: number }
 
+/** Token counts + computed USD cost, summed over some scope (project, day, model…). */
+export interface TokenTotals {
+  inputTokens: number
+  outputTokens: number
+  /** Cache-creation input tokens (5m + 1h combined). */
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  costUSD: number
+}
+
+/**
+ * Usage attributed to one Claude Code project directory
+ * (`~/.claude/projects/<dir>`). `dir` is the path-encoded repo folder, which
+ * the renderer matches back to Maestro sessions by encoding each session's
+ * folder the same way (every non-alphanumeric char becomes '-').
+ */
+export interface ProjectUsage {
+  dir: string
+  total: TokenTotals
+  today: TokenTotals
+  /** Most recent activity in this project, ms since epoch. */
+  lastActivityAt: number
+}
+
+/** Aggregated Claude Code API usage parsed from ~/.claude/projects transcripts. */
+export interface UsageSnapshot {
+  total: TokenTotals
+  today: TokenTotals
+  /** Current calendar month (local time). */
+  month: TokenTotals
+  perProject: ProjectUsage[]
+  perModel: { model: string; totals: TokenTotals }[]
+  updatedAt: number
+}
+
 export interface Settings {
   /** Command template for "open in editor". ${path}, ${dir} are substituted. */
   editorCommand: string
