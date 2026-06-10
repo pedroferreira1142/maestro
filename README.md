@@ -69,8 +69,9 @@ On app restart, all sessions are restored and conversations resumed via `claude 
 
 While Claude works on task A in a repo, spin off task B **on the same repo** without waiting:
 
-1. Click `⑂` on the session (or `Ctrl+Shift+T`). Name the task — a branch (`claude/<slug>`)
-   and a worktree folder (`<repo>.worktrees/<slug>`, sibling of the repo) are created.
+1. Click `⑂` on the session (or `Ctrl+Shift+T`). Name the task and pick its type — a branch
+   (`parallel/<slug>`, `feature/<slug>` or `bug/<slug>`) and a worktree folder
+   (`<repo>.worktrees/<slug>`, sibling of the repo) are created.
 2. A linked session appears indented under the parent, running its own `claude` in the
    worktree — optionally pre-typed with your first prompt (you press Enter to send).
 3. When the task is done, click **Merge** on the task entry: the branch is merged

@@ -13,6 +13,14 @@ function slugify(text: string): string {
   )
 }
 
+const TASK_TYPES = [
+  { value: 'parallel', label: 'Parallel' },
+  { value: 'feature', label: 'Feature' },
+  { value: 'bug', label: 'Bug' }
+] as const
+
+type TaskType = (typeof TASK_TYPES)[number]['value']
+
 /**
  * Spin off a parallel task: a new git worktree (fresh branch) of the parent
  * session's repo, with claude launched in it. Shown while pendingWorktree is set.
@@ -24,18 +32,24 @@ export function WorktreeTaskDialog(): JSX.Element {
   const pending = useStore.getState().pendingWorktree!
 
   const [name, setName] = useState('')
+  const [taskType, setTaskType] = useState<TaskType>('parallel')
   const [branch, setBranch] = useState('')
   const [branchEdited, setBranchEdited] = useState(false)
   const [baseBranch, setBaseBranch] = useState(pending.baseBranch)
   const [initialPrompt, setInitialPrompt] = useState('')
 
-  // Auto-derive the branch from the task name until the user edits it directly.
+  // Auto-derive the branch from the type + task name until the user edits it directly.
   const onName = (v: string): void => {
     setName(v)
-    if (!branchEdited) setBranch(v ? `claude/${slugify(v)}` : '')
+    if (!branchEdited) setBranch(v ? `${taskType}/${slugify(v)}` : '')
   }
 
-  const effectiveBranch = branch.trim() || (name.trim() ? `claude/${slugify(name)}` : '')
+  const onType = (t: TaskType): void => {
+    setTaskType(t)
+    if (!branchEdited) setBranch(name ? `${t}/${slugify(name)}` : '')
+  }
+
+  const effectiveBranch = branch.trim() || (name.trim() ? `${taskType}/${slugify(name)}` : '')
 
   const submit = (): void => {
     if (!effectiveBranch) return
@@ -73,9 +87,20 @@ export function WorktreeTaskDialog(): JSX.Element {
         </label>
 
         <label className="field">
+          <span>Type</span>
+          <select value={taskType} onChange={(e) => onType(e.target.value as TaskType)}>
+            {TASK_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
           <span>Branch</span>
           <input
-            placeholder="claude/task"
+            placeholder={`${taskType}/task`}
             value={branch}
             onChange={(e) => {
               setBranchEdited(true)
