@@ -3,6 +3,14 @@ import { spawn } from 'child_process'
 import { dirname } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
 import { RepoCategory, SessionConfig, Settings, TerminalConfig, TerminalKind } from '../shared/types'
+import {
+  attachClipboardImage,
+  attachImageData,
+  attachImageFile,
+  deleteAttachment,
+  listAttachments,
+  readAttachment
+} from './Attachments'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
@@ -133,6 +141,26 @@ export function registerIpc(
     shell.showItemInFolder(resolveSafe(rootOf(id), relPath))
   })
 
+  // --- chat image attachments ---
+  ipcMain.handle('attachments:clipboard', (_e, id: string) => {
+    rootOf(id) // validates session exists
+    return attachClipboardImage(id)
+  })
+  ipcMain.handle('attachments:file', (_e, id: string, srcPath: string) => {
+    rootOf(id)
+    return attachImageFile(id, srcPath)
+  })
+  ipcMain.handle('attachments:data', (_e, id: string, name: string, bytes: Uint8Array) => {
+    rootOf(id)
+    return attachImageData(id, name, bytes)
+  })
+  ipcMain.handle('attachments:list', (_e, id: string) => listAttachments(id))
+  ipcMain.handle('attachments:read', (_e, id: string, fileName: string) =>
+    readAttachment(id, fileName)
+  )
+  ipcMain.handle('attachments:delete', (_e, id: string, fileName: string) =>
+    deleteAttachment(id, fileName)
+  )
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
   const usage = new UsageService()
   ipcMain.handle('usage:get', () => usage.snapshot())

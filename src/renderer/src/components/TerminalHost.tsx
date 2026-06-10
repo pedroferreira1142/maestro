@@ -35,7 +35,12 @@ interface Props {
   visible: boolean
 }
 
-export function TerminalHost({ terminal, visible }: Props): JSX.Element {
+/** Quote a path for pasting into a CLI prompt. */
+function quotePath(p: string): string {
+  return /\s/.test(p) ? `"${p}"` : p
+}
+
+export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Element {
   const id = terminal.config.id
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -44,9 +49,27 @@ export function TerminalHost({ terminal, visible }: Props): JSX.Element {
   const [showSearch, setShowSearch] = useState(false)
   const [query, setQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false)
   const restartTerminal = useStore((s) => s.restartTerminal)
+  const attachClipboardImage = useStore((s) => s.attachClipboardImage)
+  const attachDroppedFile = useStore((s) => s.attachDroppedFile)
   const settings = useStore((s) => s.settings)
   const isClaude = terminal.config.kind === 'claude'
+
+  // Paste: in claude terminals an image on the clipboard becomes an attachment
+  // (saved to disk, path pasted) so the CLI can read it and the history below
+  // the explorer shows it; otherwise paste the clipboard text as usual.
+  const pasteSmart = async (term: Terminal): Promise<void> => {
+    if (isClaude) {
+      const info = await attachClipboardImage(sessionId)
+      if (info) {
+        term.paste(quotePath(info.absPath) + ' ')
+        return
+      }
+    }
+    const text = await window.api.clipboardRead()
+    if (text) term.paste(text)
+  }
 
   useEffect(() => {
     const term = new Terminal({
@@ -82,8 +105,12 @@ export function TerminalHost({ terminal, visible }: Props): JSX.Element {
         term.clearSelection()
         return false
       }
-      if (ctrl && shift && key === 'v') {
-        void window.api.clipboardRead().then((t) => t && term.paste(t))
+      // Plain Ctrl+V must also go through pasteSmart in claude terminals, or a
+      // clipboard image would silently paste as nothing (xterm only sees text).
+      // preventDefault, or Chromium's native paste would insert the text twice.
+      if (ctrl && key === 'v' && (shift || isClaude)) {
+        ev.preventDefault()
+        void pasteSmart(term)
         return false
       }
       if (ctrl && !shift && key === 'f') {
@@ -149,8 +176,24 @@ export function TerminalHost({ terminal, visible }: Props): JSX.Element {
       window.api.clipboardWrite(term.getSelection())
       term.clearSelection()
     } else {
-      void window.api.clipboardRead().then((t) => t && term.paste(t))
+      void pasteSmart(term)
     }
+  }
+
+  // Dropped image files become attachments; their paths are pasted for the CLI.
+  const onDrop = (ev: React.DragEvent): void => {
+    ev.preventDefault()
+    setDragOver(false)
+    if (!isClaude) return
+    const term = termRef.current
+    if (!term) return
+    void (async () => {
+      for (const file of Array.from(ev.dataTransfer.files)) {
+        const info = await attachDroppedFile(sessionId, file)
+        if (info) term.paste(quotePath(info.absPath) + ' ')
+      }
+      term.focus()
+    })()
   }
 
   const closeSearch = (): void => {
@@ -162,8 +205,20 @@ export function TerminalHost({ terminal, visible }: Props): JSX.Element {
   const ended = terminal.status === 'exited' || terminal.status === 'error'
 
   return (
-    <div className="term-wrap" style={{ display: visible ? 'block' : 'none' }}>
+    <div
+      className={`term-wrap${dragOver && isClaude ? ' drag-over' : ''}`}
+      style={{ display: visible ? 'block' : 'none' }}
+      onDragOver={(ev) => {
+        ev.preventDefault()
+        if (isClaude) setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+    >
       <div className="term-container" ref={containerRef} onContextMenu={onContextMenu} />
+      {dragOver && isClaude && (
+        <div className="term-drop-hint">Drop image to attach</div>
+      )}
       {showSearch && (
         <div className="term-search">
           <input

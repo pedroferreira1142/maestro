@@ -169,6 +169,23 @@ export interface FsEvent {
   at: number
 }
 
+/**
+ * An image attached to a session's chat (pasted or dropped into the terminal).
+ * Stored on disk under userData/attachments/<sessionId>; the history shown
+ * below the file explorer is derived from that folder.
+ */
+export interface AttachmentInfo {
+  /** Unique file name within the session's attachments folder. */
+  fileName: string
+  /** Absolute path on disk — this is what gets pasted into the CLI. */
+  absPath: string
+  /** Attach time (file mtime, ms). */
+  at: number
+  size: number
+  /** Small preview as a data URL, sized for the history list. */
+  thumbDataUrl: string
+}
+
 export type FileContent =
   | { kind: 'text'; content: string; truncated: boolean; size: number }
   | { kind: 'image'; dataUrl: string; size: number }

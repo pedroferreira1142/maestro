@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DirEntry, SessionInfo } from '../../../shared/types'
+import type { AttachmentInfo, DirEntry, SessionInfo } from '../../../shared/types'
 import { fsBus } from '../fsBus'
 import { useStore } from '../store'
 
 const FLASH_MS = 8000
 
-// Stable fallback: a selector must never return a fresh reference per call,
+// Stable fallbacks: a selector must never return a fresh reference per call,
 // or useSyncExternalStore re-renders forever (React #185).
 const NO_RECENT: never[] = []
+const NO_ATTACHMENTS: never[] = []
+
+function timeAgo(at: number): string {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
 
 interface MenuState {
   x: number
@@ -34,6 +43,11 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
   const settings = useStore((s) => s.settings)
   const recent = useStore((s) => s.recent[id]) ?? NO_RECENT
   const openFile = useStore((s) => s.openFile)
+  const attachments = useStore((s) => s.attachments[id]) ?? NO_ATTACHMENTS
+  const loadAttachments = useStore((s) => s.loadAttachments)
+  const deleteAttachment = useStore((s) => s.deleteAttachment)
+  const [preview, setPreview] = useState<AttachmentInfo | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   const ignoreSet = new Set(settings?.ignoreNames ?? [])
 
@@ -53,8 +67,35 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
   useEffect(() => {
     void loadDir('')
     for (const p of session.config.expandedPaths) void loadDir(p)
+    void loadAttachments(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  const openPreview = (a: AttachmentInfo): void => {
+    setPreview(a)
+    setPreviewUrl(null)
+    void window.api.readAttachment(id, a.fileName).then(setPreviewUrl).catch(() => {})
+  }
+
+  const closePreview = (): void => {
+    setPreview(null)
+    setPreviewUrl(null)
+  }
+
+  /** Paste the attachment's path into the session's active claude terminal. */
+  const insertIntoTerminal = (a: AttachmentInfo): void => {
+    const termId =
+      session.config.activeTerminalId ?? session.terminals[0]?.config.id ?? null
+    if (!termId) return
+    const quoted = /\s/.test(a.absPath) ? `"${a.absPath}"` : a.absPath
+    window.api.ptyWrite(termId, quoted + ' ')
+  }
+
+  const removeAttachment = (a: AttachmentInfo): void => {
+    if (!window.confirm(`Delete attachment "${a.fileName}"?`)) return
+    void deleteAttachment(id, a.fileName)
+    if (preview?.fileName === a.fileName) closePreview()
+  }
 
   useEffect(() => {
     return fsBus.on(id, (events) => {
@@ -188,6 +229,64 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
               <span className="recent-age">{Math.max(0, Math.round((Date.now() - ev.at) / 1000))}s</span>
             </div>
           ))}
+        </div>
+      )}
+      {attachments.length > 0 && (
+        <div className="attachments">
+          <div className="attachments-header">Attached images</div>
+          <div className="attachments-grid">
+            {attachments.map((a) => (
+              <div
+                key={a.fileName}
+                className="attachment-thumb"
+                title={`${a.fileName} — ${timeAgo(a.at)} ago`}
+                onClick={() => openPreview(a)}
+              >
+                {a.thumbDataUrl ? (
+                  <img src={a.thumbDataUrl} alt={a.fileName} />
+                ) : (
+                  <span className="attachment-broken">🖼</span>
+                )}
+                <span className="attachment-age">{timeAgo(a.at)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {preview && (
+        <div className="attachment-lightbox" onClick={closePreview}>
+          <div className="attachment-lightbox-card" onClick={(ev) => ev.stopPropagation()}>
+            <div className="attachment-lightbox-img">
+              {previewUrl ? <img src={previewUrl} alt={preview.fileName} /> : <span>…</span>}
+            </div>
+            <div className="attachment-lightbox-meta" title={preview.absPath}>
+              {preview.fileName} · {(preview.size / 1024).toFixed(0)} KB · {timeAgo(preview.at)}{' '}
+              ago
+            </div>
+            <div className="row">
+              <button
+                className="btn"
+                onClick={() => {
+                  insertIntoTerminal(preview)
+                  closePreview()
+                }}
+              >
+                Paste path in terminal
+              </button>
+              <button
+                className="btn"
+                onClick={() => window.api.clipboardWrite(preview.absPath)}
+              >
+                Copy path
+              </button>
+              <button className="btn" onClick={() => removeAttachment(preview)}>
+                Delete
+              </button>
+              <button className="btn ghost" onClick={closePreview}>
+                ✕
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {menu && (

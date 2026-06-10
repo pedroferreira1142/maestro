@@ -16,6 +16,7 @@ import {
   WorktreeTaskState
 } from '../shared/types'
 import type { CreateWorktreeOpts } from '../shared/api'
+import { deleteAllAttachments } from './Attachments'
 import { scanSkills } from './ClaudeEnv'
 import { applyContextProfile } from './ContextProfile'
 import { FsService } from './FsService'
@@ -150,6 +151,7 @@ export class SessionManager {
       }
     }
     this.fs.stop(id)
+    void deleteAllAttachments(id).catch(() => {})
     this.state.sessions = this.state.sessions.filter((s) => s.id !== id)
     if (this.state.activeSessionId === id) this.state.activeSessionId = null
     this.persistence.scheduleSave()
