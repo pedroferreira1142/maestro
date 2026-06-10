@@ -30,12 +30,13 @@ try {
   // electron not installed alongside the package — use the npx fallback below
 }
 
+// Windows needs shell:true to run npx.cmd; pass one pre-quoted string there
+// (args arrays + shell:true are deprecated, DEP0190).
 const child = electronPath
   ? spawn(electronPath, [appDir], { stdio: 'inherit' })
-  : spawn('npx', ['-y', 'electron@^33.3.0', appDir], {
-      stdio: 'inherit',
-      shell: process.platform === 'win32' // npx is npx.cmd on Windows
-    })
+  : process.platform === 'win32'
+    ? spawn(`npx -y "electron@^33.3.0" "${appDir}"`, { stdio: 'inherit', shell: true })
+    : spawn('npx', ['-y', 'electron@^33.3.0', appDir], { stdio: 'inherit' })
 
 child.on('error', (err) => {
   console.error('Maestro: failed to launch electron:', err.message)
