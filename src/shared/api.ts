@@ -12,6 +12,7 @@ import type {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  UsageSnapshot,
   WorktreeInfo,
   WorktreeTaskState
 } from './types'
@@ -95,6 +96,9 @@ export interface Api {
   onFsEvents(cb: (id: string, events: FsEvent[]) => void): Unsubscribe
   openInEditor(id: string, relPath: string): Promise<void>
   revealInExplorer(id: string, relPath: string): Promise<void>
+
+  // usage (token cost aggregated from Claude Code transcripts)
+  getUsage(): Promise<UsageSnapshot>
 
   // misc
   openExternal(url: string): void
