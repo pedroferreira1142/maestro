@@ -19,6 +19,8 @@ function subscribe(
 }
 
 const api: Api = {
+  platform: process.platform,
+
   createSession: (folder, opts?) => ipcRenderer.invoke('session:create', folder, opts),
   closeSession: (id) => ipcRenderer.invoke('session:close', id),
   updateSession: (id, patch: Partial<SessionConfig>) =>

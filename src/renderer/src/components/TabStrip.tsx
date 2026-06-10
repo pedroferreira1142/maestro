@@ -15,15 +15,24 @@ const KIND_ICON: Record<TerminalKind, string> = {
   claude: '✶',
   powershell: '❯_',
   cmd: '▤',
-  bash: '$_'
+  bash: '$_',
+  zsh: '%_'
 }
 
-const ADD_MENU: { kind: TerminalKind; label: string }[] = [
-  { kind: 'claude', label: 'Claude' },
-  { kind: 'powershell', label: 'PowerShell' },
-  { kind: 'cmd', label: 'cmd' },
-  { kind: 'bash', label: 'Git Bash' }
-]
+/** Terminal kinds offered by the ＋▾ menu, per platform. */
+const ADD_MENU: { kind: TerminalKind; label: string }[] =
+  window.api.platform === 'win32'
+    ? [
+        { kind: 'claude', label: 'Claude' },
+        { kind: 'powershell', label: 'PowerShell' },
+        { kind: 'cmd', label: 'cmd' },
+        { kind: 'bash', label: 'Git Bash' }
+      ]
+    : [
+        { kind: 'claude', label: 'Claude' },
+        { kind: 'zsh', label: 'zsh' },
+        { kind: 'bash', label: 'bash' }
+      ]
 
 function TerminalTab({
   sessionId,

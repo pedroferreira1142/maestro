@@ -54,7 +54,8 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
       const st = useStore.getState()
-      const ctrl = ev.ctrlKey
+      // Ctrl everywhere; Cmd also accepted on macOS (Cmd+Tab stays the OS's).
+      const ctrl = ev.ctrlKey || (window.api.platform === 'darwin' && ev.metaKey)
       const shift = ev.shiftKey
       if (!ctrl) return
       if (ev.key === 'Tab') {

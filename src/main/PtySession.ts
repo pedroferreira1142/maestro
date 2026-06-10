@@ -1,10 +1,12 @@
 import * as pty from 'node-pty'
 import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
+import { join } from 'path'
 import { SessionStatus, StartMode, TerminalConfig, TerminalKind } from '../shared/types'
 import { StatusDetector } from './StatusDetector'
 
 const RING_BUFFER_BYTES = 2 * 1024 * 1024
+const IS_WIN = process.platform === 'win32'
 
 export interface PtyCallbacks {
   onData(id: string, data: string): void
@@ -17,9 +19,11 @@ interface ResolvedCommand {
   argsPrefix: string[]
 }
 
-/** Run `where.exe NAME` and return matching absolute paths, best first. */
+/** All PATH matches for a name (`where.exe` / `which -a`), best first. */
 function which(name: string): string[] {
-  const out = spawnSync('where.exe', [name], { encoding: 'utf8' })
+  const out = IS_WIN
+    ? spawnSync('where.exe', [name], { encoding: 'utf8' })
+    : spawnSync('which', ['-a', name], { encoding: 'utf8' })
   if (out.status !== 0 || !out.stdout) return []
   return out.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 }
@@ -27,16 +31,21 @@ function which(name: string): string[] {
 const cache = new Map<TerminalKind, ResolvedCommand | null>()
 
 /**
- * Locate the claude CLI. npm installs put a `claude.cmd` shim on PATH which
- * ConPTY can't spawn directly, so .cmd/.bat resolve through cmd.exe /c.
+ * Locate the claude CLI. On Windows, npm installs put a `claude.cmd` shim on
+ * PATH which ConPTY can't spawn directly, so .cmd/.bat resolve through
+ * cmd.exe /c. On macOS/Linux any PATH match is directly spawnable.
  */
 export function resolveClaude(): ResolvedCommand | null {
   const candidates = which('claude')
-  const localBin = process.env.USERPROFILE
-    ? `${process.env.USERPROFILE}\\.local\\bin\\claude.exe`
-    : null
-  if (localBin && existsSync(localBin)) candidates.push(localBin)
-
+  const home = IS_WIN ? process.env.USERPROFILE : process.env.HOME
+  if (home) {
+    // claude's native installer target (`claude install`) lives here.
+    const localBin = join(home, '.local', 'bin', IS_WIN ? 'claude.exe' : 'claude')
+    if (existsSync(localBin)) candidates.push(localBin)
+  }
+  if (!IS_WIN) {
+    return candidates[0] ? { file: candidates[0], argsPrefix: [] } : null
+  }
   const exe = candidates.find((c) => c.toLowerCase().endsWith('.exe'))
   const cmd = candidates.find((c) => /\.(cmd|bat)$/i.test(c))
   if (exe) return { file: exe, argsPrefix: [] }
@@ -44,16 +53,21 @@ export function resolveClaude(): ResolvedCommand | null {
   return null
 }
 
-function resolvePowershell(): ResolvedCommand {
-  const pwsh = which('pwsh.exe')[0] ?? which('pwsh')[0]
-  return { file: pwsh ?? 'powershell.exe', argsPrefix: ['-NoLogo'] }
+function resolvePowershell(): ResolvedCommand | null {
+  const pwsh = which(IS_WIN ? 'pwsh.exe' : 'pwsh')[0] ?? which('pwsh')[0]
+  if (pwsh) return { file: pwsh, argsPrefix: ['-NoLogo'] }
+  return IS_WIN ? { file: 'powershell.exe', argsPrefix: ['-NoLogo'] } : null
 }
 
-function resolveCmd(): ResolvedCommand {
-  return { file: process.env.ComSpec ?? 'cmd.exe', argsPrefix: [] }
+function resolveCmd(): ResolvedCommand | null {
+  return IS_WIN ? { file: process.env.ComSpec ?? 'cmd.exe', argsPrefix: [] } : null
 }
 
 function resolveBash(): ResolvedCommand | null {
+  if (!IS_WIN) {
+    const p = which('bash')[0] ?? (existsSync('/bin/bash') ? '/bin/bash' : null)
+    return p ? { file: p, argsPrefix: ['-i', '-l'] } : null
+  }
   const onPath = which('bash.exe')[0] ?? which('bash')[0]
   if (onPath) return { file: onPath, argsPrefix: ['-i', '-l'] }
   const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean)
@@ -64,6 +78,12 @@ function resolveBash(): ResolvedCommand | null {
     }
   }
   return null
+}
+
+function resolveZsh(): ResolvedCommand | null {
+  if (IS_WIN) return null
+  const p = which('zsh')[0] ?? (existsSync('/bin/zsh') ? '/bin/zsh' : null)
+  return p ? { file: p, argsPrefix: ['-i', '-l'] } : null
 }
 
 /** Resolve (and cache) the executable for a terminal kind. */
@@ -83,6 +103,9 @@ export function resolveKind(kind: TerminalKind): ResolvedCommand | null {
     case 'bash':
       resolved = resolveBash()
       break
+    case 'zsh':
+      resolved = resolveZsh()
+      break
   }
   cache.set(kind, resolved)
   return resolved
@@ -91,7 +114,12 @@ export function resolveKind(kind: TerminalKind): ResolvedCommand | null {
 const KIND_MISSING: Partial<Record<TerminalKind, string>> = {
   claude:
     'claude CLI not found on PATH.\r\nInstall it with: npm install -g @anthropic-ai/claude-code',
-  bash: 'bash not found.\r\nInstall Git for Windows to get Git Bash.'
+  bash: IS_WIN
+    ? 'bash not found.\r\nInstall Git for Windows to get Git Bash.'
+    : 'bash not found on PATH.',
+  zsh: 'zsh not found on PATH.',
+  powershell: 'PowerShell (pwsh) not found on PATH.',
+  cmd: 'cmd.exe is only available on Windows.'
 }
 
 /**

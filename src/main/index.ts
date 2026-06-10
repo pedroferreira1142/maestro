@@ -86,6 +86,12 @@ if (!gotLock) {
     createWindow()
     sessions.restoreAll()
 
+    // macOS convention: closing the window keeps the app (and its PTYs)
+    // running; clicking the dock icon brings the window back.
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+
     app.on('before-quit', () => {
       sessions.disposeAll()
       persistence.saveNow()
@@ -93,6 +99,6 @@ if (!gotLock) {
   })
 
   app.on('window-all-closed', () => {
-    app.quit()
+    if (process.platform !== 'darwin') app.quit()
   })
 }

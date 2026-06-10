@@ -8,8 +8,12 @@ export type SessionStatus =
 
 export type StartMode = 'fresh' | 'continue'
 
-/** The kind of program a terminal runs. `claude` is the default. */
-export type TerminalKind = 'claude' | 'powershell' | 'cmd' | 'bash'
+/**
+ * The kind of program a terminal runs. `claude` is the default.
+ * powershell/cmd are Windows-only; zsh is macOS/Linux-only (resolveKind
+ * returns null for kinds unavailable on the current platform).
+ */
+export type TerminalKind = 'claude' | 'powershell' | 'cmd' | 'bash' | 'zsh'
 
 /**
  * How visible a skill is to claude in a session. Mirrors Claude Code's

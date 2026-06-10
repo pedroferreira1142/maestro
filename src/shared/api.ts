@@ -31,6 +31,9 @@ export type Unsubscribe = () => void
 
 /** The typed API exposed to the renderer via contextBridge as `window.api`. */
 export interface Api {
+  /** Node's process.platform ('win32' | 'darwin' | 'linux'), for platform-aware UI. */
+  readonly platform: string
+
   // session lifecycle
   createSession(folder: string, opts?: Partial<SessionConfig>): Promise<SessionInfo>
   closeSession(id: string): Promise<void>
