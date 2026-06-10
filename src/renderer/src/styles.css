@@ -212,6 +212,163 @@ body {
   }
 }
 
+/* ---------- usage widget ---------- */
+
+.usage-widget {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  flex: none;
+}
+
+.usage-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.usage-bar:hover {
+  background: var(--panel-2);
+}
+
+.usage-coin {
+  color: var(--green);
+  font-size: 11px;
+}
+
+.usage-today {
+  font-weight: 600;
+}
+
+.usage-dim {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-chevron {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.usage-panel {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.usage-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.usage-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.usage-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+
+.usage-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 10px;
+  color: var(--dim);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+}
+
+.usage-section {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.usage-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.usage-row.dim {
+  color: var(--dim);
+}
+
+.usage-row.head {
+  color: var(--dim);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.usage-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.usage-row-name.live {
+  font-weight: 600;
+}
+
+.usage-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+
+.usage-row-today {
+  width: 52px;
+  text-align: right;
+  color: var(--dim);
+  flex: none;
+}
+
+.usage-row-total {
+  width: 56px;
+  text-align: right;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- explorer ---------- */
 
 .explorer {

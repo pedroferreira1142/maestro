@@ -81,6 +81,8 @@ const api: Api = {
   openInEditor: (id, relPath) => ipcRenderer.invoke('fs:openInEditor', id, relPath),
   revealInExplorer: (id, relPath) => ipcRenderer.invoke('fs:reveal', id, relPath),
 
+  getUsage: () => ipcRenderer.invoke('usage:get'),
+
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: (text) => ipcRenderer.send('clipboard:write', text),
