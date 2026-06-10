@@ -73,7 +73,7 @@ if (!gotLock) {
   })
 
   app.whenReady().then(() => {
-    app.setAppUserModelId('be.sofico.claude-session-manager')
+    app.setAppUserModelId('com.pedroferreira.maestro')
     persistence.load()
 
     const fsService = new FsService(

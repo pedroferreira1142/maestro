@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { randomUUID } from 'crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { AppStateFile, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, SessionConfig } from '../shared/types'
 
@@ -45,7 +45,25 @@ export class Persistence {
   private timer: NodeJS.Timeout | null = null
   state: AppStateFile = DEFAULT_STATE
 
+  /**
+   * One-time import from the pre-rename userData dir ("claude-session-manager",
+   * the app's old package name): if our sessions.json doesn't exist yet but the
+   * old one does, copy it over so existing sessions survive the rename to Maestro.
+   */
+  private migrateLegacyStateFile(): void {
+    try {
+      if (existsSync(this.file)) return
+      const legacy = join(app.getPath('userData'), '..', 'claude-session-manager', 'sessions.json')
+      if (!existsSync(legacy)) return
+      mkdirSync(dirname(this.file), { recursive: true })
+      copyFileSync(legacy, this.file)
+    } catch {
+      // best-effort; a fresh state is an acceptable fallback
+    }
+  }
+
   load(): AppStateFile {
+    this.migrateLegacyStateFile()
     try {
       const raw = JSON.parse(readFileSync(this.file, 'utf8'))
       this.state = {

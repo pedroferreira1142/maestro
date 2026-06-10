@@ -1,15 +1,49 @@
 {
-  "name": "claude-session-manager",
+  "name": "maestro",
   "version": "0.1.0",
-  "description": "Manage multiple Claude Code CLI sessions across repos in one window",
+  "description": "Maestro — run and conduct multiple Claude Code CLI sessions across repos in one window, with git-worktree parallel tasks",
   "main": "out/main/index.js",
-  "author": "Pedro Ferreira",
+  "author": "Pedro Ferreira <pedroferreira1142@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pedroferreira1142/maestro.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "package": "electron-vite build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.pedroferreira.maestro",
+    "productName": "Maestro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "${productName}-Setup-${version}.exe"
+    }
   },
   "dependencies": {
     "chokidar": "^4.0.3",
@@ -30,6 +64,7 @@
     "@xterm/xterm": "^5.5.0",
     "codemirror": "^6.0.1",
     "electron": "^33.3.0",
+    "electron-builder": "^26.15.2",
     "electron-vite": "^3.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

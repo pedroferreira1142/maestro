@@ -93,7 +93,7 @@ export default function App(): JSX.Element {
       <div className="main">
         {sessions.length === 0 ? (
           <div className="welcome">
-            <h1>Claude Session Manager</h1>
+            <h1>Maestro</h1>
             <p>Run Claude Code on several repos at once — one window, zero lost context.</p>
             <button className="btn primary" onClick={() => void useStore.getState().newSession()}>
               Open a repo to start a session
