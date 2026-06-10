@@ -12,7 +12,8 @@ import type {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
-  WorktreeInfo
+  WorktreeInfo,
+  WorktreeTaskState
 } from './types'
 
 /** Options for spinning off a parallel git-worktree task from a session. */
@@ -48,8 +49,10 @@ export interface Api {
   worktreeInfo(sessionId: string): Promise<WorktreeInfo>
   /** Create a worktree + linked task session off `parentSessionId`. Throws on git failure. */
   createWorktree(parentSessionId: string, opts: CreateWorktreeOpts): Promise<SessionInfo>
-  /** Merge a worktree task's branch back into its base branch (runs in the base repo). */
-  mergeWorktree(sessionId: string): Promise<MergeResult>
+  /** Live git facts about a worktree task (uncommitted files, commits ahead of base). */
+  worktreeState(sessionId: string): Promise<WorktreeTaskState>
+  /** Merge a task branch into its base; commitFirst commits pending work to the branch first. */
+  mergeWorktree(sessionId: string, commitFirst: boolean): Promise<MergeResult>
   /** Close a worktree task, remove its worktree, and optionally delete its branch. */
   removeWorktree(sessionId: string, deleteBranch: boolean): Promise<void>
 

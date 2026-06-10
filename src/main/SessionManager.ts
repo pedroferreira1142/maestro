@@ -1,6 +1,7 @@
 import { BrowserWindow, Notification } from 'electron'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
+import { existsSync, rmSync } from 'fs'
 import {
   MergeResult,
   RepoCategory,
@@ -11,7 +12,8 @@ import {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
-  WorktreeInfo
+  WorktreeInfo,
+  WorktreeTaskState
 } from '../shared/types'
 import type { CreateWorktreeOpts } from '../shared/api'
 import { scanSkills } from './ClaudeEnv'
@@ -23,6 +25,22 @@ import { PtySession } from './PtySession'
 
 /** How long to wait before typing a worktree task's initial prompt into claude. */
 const INITIAL_PROMPT_DELAY_MS = 3500
+
+/** How long to wait for killed PTY processes to release their cwd (Windows file locks). */
+const PTY_EXIT_WAIT_MS = 4000
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/** True while a pid is still alive (signal 0 probe). */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    // EPERM = alive but not ours; ESRCH = gone.
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
 
 /** Sidebar aggregate order — earliest wins across a session's terminals. */
 const STATUS_PRIORITY: SessionStatus[] = [
@@ -148,8 +166,10 @@ export class SessionManager {
   /**
    * Spin off a parallel task: create a new git worktree (on a fresh branch) of
    * the parent session's repo, register it as a linked session, and launch
-   * claude in it. Throws (with git's message) if the folder isn't a repo or the
-   * worktree can't be created — the renderer surfaces that to the user.
+   * claude in it. If the branch (and possibly its worktree) already exists —
+   * e.g. a task whose session was lost — it is adopted instead of failing.
+   * Throws (with git's message) if the folder isn't a repo or the worktree
+   * can't be created — the renderer surfaces that to the user.
    */
   async createWorktreeSession(
     parentSessionId: string,
@@ -168,7 +188,18 @@ export class SessionManager {
     if (!branch) throw new Error('A branch name is required.')
 
     const worktreePath = Git.defaultWorktreePath(repoRoot, branch)
-    await Git.addWorktree(repoRoot, worktreePath, branch, baseBranch)
+    await Git.pruneWorktrees(repoRoot) // drop stale registrations first
+    const registered = (await Git.listWorktreePaths(repoRoot)).includes(
+      worktreePath.replace(/\\/g, '/')
+    )
+    if (registered && existsSync(worktreePath)) {
+      // Adopt: worktree already live (a task whose session entry was lost).
+    } else if (await Git.branchExists(repoRoot, branch)) {
+      // Branch survives from an earlier task — re-attach a worktree to it.
+      await Git.addWorktreeForBranch(repoRoot, worktreePath, branch)
+    } else {
+      await Git.addWorktree(repoRoot, worktreePath, branch, baseBranch)
+    }
 
     const claudeTerminal: TerminalConfig = {
       id: randomUUID(),
@@ -207,35 +238,112 @@ export class SessionManager {
     return this.toInfo(config)
   }
 
-  /** Merge a worktree task's branch back into its base branch (runs in the base repo). */
-  async mergeWorktree(sessionId: string): Promise<MergeResult> {
+  /** Live git facts about a worktree task (uncommitted files, commits ahead). */
+  async getWorktreeTaskState(sessionId: string): Promise<WorktreeTaskState> {
+    const config = this.getConfig(sessionId)
+    if (!config?.worktree) return { folderExists: false, dirty: -1, ahead: -1 }
+    const folderExists = existsSync(config.folder)
+    const dirty = folderExists ? await Git.dirtyCount(config.folder) : null
+    const ahead = await Git.aheadCount(
+      config.worktree.baseFolder,
+      config.worktree.baseBranch,
+      config.worktree.branch
+    )
+    return { folderExists, dirty: dirty ?? -1, ahead: ahead ?? -1 }
+  }
+
+  /**
+   * Merge a worktree task's branch back into its base branch (runs in the base
+   * repo). Claude never commits on its own schedule, so with `commitFirst` any
+   * uncommitted work in the worktree is committed to the task branch before
+   * merging — without it, only already-committed work merges. A branch with no
+   * commits beyond base returns nothingToMerge instead of a misleading success.
+   */
+  async mergeWorktree(sessionId: string, commitFirst: boolean): Promise<MergeResult> {
     const config = this.getConfig(sessionId)
     if (!config?.worktree) {
       return { ok: false, conflict: false, output: 'Not a worktree task session.' }
     }
     const { baseFolder, branch, baseBranch } = config.worktree
-    return Git.mergeBranch(baseFolder, branch, baseBranch)
+    if (!existsSync(config.folder)) {
+      return {
+        ok: false,
+        conflict: false,
+        output: 'The worktree folder no longer exists — remove this task instead.'
+      }
+    }
+
+    let autoCommitted = false
+    if (commitFirst && ((await Git.dirtyCount(config.folder)) ?? 0) > 0) {
+      const commit = await Git.commitAll(config.folder, `${config.name} (Maestro task)`)
+      if (commit.code !== 0) {
+        return { ok: false, conflict: false, output: `Commit failed:\n${commit.output}` }
+      }
+      autoCommitted = true
+    }
+
+    const ahead = await Git.aheadCount(baseFolder, baseBranch, branch)
+    if (ahead === 0) {
+      return {
+        ok: false,
+        conflict: false,
+        nothingToMerge: true,
+        autoCommitted,
+        output: `Branch "${branch}" has no commits beyond "${baseBranch}" — nothing to merge.`
+      }
+    }
+
+    const result = await Git.mergeBranch(baseFolder, branch, baseBranch)
+    return { ...result, autoCommitted }
   }
 
-  /** Close a worktree task, remove its git worktree, and optionally delete its branch. */
+  /**
+   * Close a worktree task, remove its git worktree, and optionally delete its
+   * branch. Kills the task's terminals first and WAITS for them to exit —
+   * Windows can't delete a folder that's still some process's cwd. Tolerates
+   * half-removed worktrees (missing folder, stale registration) so a broken
+   * task can always be cleaned up from the UI.
+   */
   async removeWorktree(sessionId: string, deleteBranch: boolean): Promise<void> {
     const config = this.getConfig(sessionId)
     if (!config?.worktree) return
     const { baseFolder, branch } = config.worktree
 
+    const pids: number[] = []
     for (const terminal of config.terminals) {
-      this.ptys.get(terminal.id)?.kill()
+      const pty = this.ptys.get(terminal.id)
+      if (pty?.pid) pids.push(pty.pid)
+      pty?.kill()
       this.ptys.delete(terminal.id)
     }
     this.fs.stop(sessionId)
 
-    // Force-remove: the worktree holds our untracked .claude/.mcp managed files.
+    const deadline = Date.now() + PTY_EXIT_WAIT_MS
+    while (pids.some(pidAlive) && Date.now() < deadline) await sleep(150)
+
     try {
-      await Git.removeWorktree(baseFolder, config.folder, true)
+      await Git.pruneWorktrees(baseFolder)
+      const registered = (await Git.listWorktreePaths(baseFolder)).includes(
+        config.folder.replace(/\\/g, '/')
+      )
+      if (registered) {
+        try {
+          await Git.removeWorktree(baseFolder, config.folder, true)
+        } catch {
+          await sleep(1000) // file locks can outlive the process briefly
+          await Git.removeWorktree(baseFolder, config.folder, true)
+        }
+      } else if (existsSync(config.folder)) {
+        // Orphaned leftover of a failed removal — git no longer tracks it.
+        rmSync(config.folder, { recursive: true, force: true })
+      }
       if (deleteBranch) await Git.deleteBranch(baseFolder, branch, true)
     } catch (err) {
       console.error('removeWorktree (git) failed', err)
-      throw err
+      throw new Error(
+        `Couldn't delete the worktree folder — something may still be using it ` +
+          `(an editor or terminal in that folder?).\n\n${(err as Error).message}`
+      )
     }
 
     this.state.sessions = this.state.sessions.filter((s) => s.id !== sessionId)

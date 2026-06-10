@@ -115,6 +115,73 @@ export async function mergeBranch(
   return { ok: false, conflict: merging.code === 0, output: res.output }
 }
 
+/** Number of dirty (changed/untracked) files in a working tree; null if not a repo. */
+export async function dirtyCount(folder: string): Promise<number | null> {
+  try {
+    const res = await git(folder, ['status', '--porcelain'])
+    if (res.code !== 0) return null
+    return res.stdout.split(/\r?\n/).filter((l) => l.trim()).length
+  } catch {
+    return null
+  }
+}
+
+/** Commits on `branch` that aren't on `base`; null when either ref is unknown. */
+export async function aheadCount(
+  repoRoot: string,
+  base: string,
+  branch: string
+): Promise<number | null> {
+  try {
+    const res = await git(repoRoot, ['rev-list', '--count', `${base}..${branch}`])
+    if (res.code !== 0) return null
+    const n = Number.parseInt(res.stdout.trim(), 10)
+    return Number.isNaN(n) ? null : n
+  } catch {
+    return null
+  }
+}
+
+/** Stage everything and commit. Returns ok:false (with output) when there's nothing to commit. */
+export async function commitAll(folder: string, message: string): Promise<GitResult> {
+  const add = await git(folder, ['add', '-A'])
+  if (add.code !== 0) return add
+  return git(folder, ['commit', '-m', message])
+}
+
+/** True if a local branch with this name exists. */
+export async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
+  const res = await git(repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])
+  return res.code === 0
+}
+
+/** Absolute paths of all registered worktrees (normalized to forward slashes). */
+export async function listWorktreePaths(repoRoot: string): Promise<string[]> {
+  const res = await git(repoRoot, ['worktree', 'list', '--porcelain'])
+  if (res.code !== 0) return []
+  return res.stdout
+    .split(/\r?\n/)
+    .filter((l) => l.startsWith('worktree '))
+    .map((l) => l.slice('worktree '.length).trim().replace(/\\/g, '/'))
+}
+
+/** `git worktree add <path> <branch>` for an EXISTING branch. Throws on failure. */
+export async function addWorktreeForBranch(
+  repoRoot: string,
+  worktreePath: string,
+  branch: string
+): Promise<void> {
+  const res = await git(repoRoot, ['worktree', 'add', worktreePath, branch])
+  if (res.code !== 0) {
+    throw new Error(res.output || `git worktree add failed (exit ${res.code})`)
+  }
+}
+
+/** Drop stale worktree registrations (deleted folders). Best-effort. */
+export async function pruneWorktrees(repoRoot: string): Promise<void> {
+  await git(repoRoot, ['worktree', 'prune'])
+}
+
 /** `git worktree remove [--force] <path>`. Throws with git output on failure. */
 export async function removeWorktree(
   repoRoot: string,

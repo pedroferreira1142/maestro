@@ -119,8 +119,25 @@ export interface MergeResult {
   ok: boolean
   /** True when the merge stopped on conflicts (resolve manually in the terminal). */
   conflict: boolean
+  /** True when the task branch had no commits beyond base — nothing was merged. */
+  nothingToMerge?: boolean
+  /** True when uncommitted task changes were committed as part of the merge. */
+  autoCommitted?: boolean
   /** Combined git stdout+stderr, surfaced to the user. */
   output: string
+}
+
+/**
+ * Live git facts about a worktree task, fetched before merge/remove so the UI
+ * can warn precisely (uncommitted work, nothing to merge, broken folder).
+ */
+export interface WorktreeTaskState {
+  /** The worktree folder exists on disk. */
+  folderExists: boolean
+  /** Uncommitted (changed/untracked) files in the worktree; -1 if unknown/broken. */
+  dirty: number
+  /** Commits on the task branch not yet on the base branch; -1 if unknown. */
+  ahead: number
 }
 
 export interface TerminalInfo {

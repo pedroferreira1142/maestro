@@ -264,7 +264,34 @@ export const useStore = create<AppStore>()((set, get) => ({
     const session = get().sessions.find((s) => s.config.id === sessionId)
     const wt = session?.config.worktree
     if (!session || !wt) return
-    const result = await window.api.mergeWorktree(sessionId)
+
+    const state = await window.api.worktreeState(sessionId)
+    if (!state.folderExists) {
+      window.alert(
+        `The worktree folder for "${session.config.name}" no longer exists.\n\n` +
+          `Use ✕ on the task to clean it up.`
+      )
+      return
+    }
+
+    // Claude edits files but doesn't commit — pending work must be committed
+    // to the task branch or the merge would silently miss it.
+    let commitFirst = false
+    if (state.dirty > 0) {
+      commitFirst = window.confirm(
+        `"${session.config.name}" has ${state.dirty} uncommitted file(s).\n\n` +
+          `Commit them to "${wt.branch}" and merge into "${wt.baseBranch}"?`
+      )
+      if (!commitFirst) return
+    } else if (state.ahead === 0) {
+      window.alert(
+        `Nothing to merge: "${wt.branch}" has no uncommitted changes and no commits ` +
+          `beyond "${wt.baseBranch}".\n\nAsk claude to make (or commit) changes first.`
+      )
+      return
+    }
+
+    const result = await window.api.mergeWorktree(sessionId, commitFirst)
     if (result.ok) {
       const cleanup = window.confirm(
         `Merged "${wt.branch}" into "${wt.baseBranch}".\n\nRemove the worktree and delete the branch now?`
@@ -272,11 +299,15 @@ export const useStore = create<AppStore>()((set, get) => ({
       if (cleanup) await get().removeWorktreeTask(sessionId)
       return
     }
+    if (result.nothingToMerge) {
+      window.alert(result.output)
+      return
+    }
     if (result.conflict) {
       get().setActive(sessionId)
       window.alert(
         `Merge of "${wt.branch}" into "${wt.baseBranch}" stopped on conflicts.\n\n` +
-          `Resolve them in the terminal, then commit.\n\n${result.output}`
+          `Resolve them in the terminal (in the BASE repo: ${wt.baseFolder}), then commit.\n\n${result.output}`
       )
       return
     }
@@ -287,15 +318,26 @@ export const useStore = create<AppStore>()((set, get) => ({
     const session = get().sessions.find((s) => s.config.id === sessionId)
     const wt = session?.config.worktree
     if (!session || !wt) return
-    if (!window.confirm(`Remove worktree task "${session.config.name}"?\n\nThis deletes the worktree folder:\n${session.config.folder}`)) {
-      return
-    }
-    const delBranch = window.confirm(`Also delete the branch "${wt.branch}"?`)
+
+    const state = await window.api.worktreeState(sessionId)
+    const lossWarning =
+      state.folderExists && state.dirty > 0
+        ? `\n\n⚠ ${state.dirty} uncommitted file(s) will be PERMANENTLY DELETED.`
+        : ''
+    const prompt = state.folderExists
+      ? `Remove worktree task "${session.config.name}"?\n\nThis deletes the worktree folder:\n${session.config.folder}${lossWarning}`
+      : `Remove the broken task "${session.config.name}"? (Its worktree folder is already gone.)`
+    if (!window.confirm(prompt)) return
+
+    const unmergedWarning =
+      state.ahead > 0 ? ` It has ${state.ahead} commit(s) not merged into "${wt.baseBranch}".` : ''
+    const delBranch = window.confirm(`Also delete the branch "${wt.branch}"?${unmergedWarning}`)
     try {
       await window.api.removeWorktree(sessionId, delBranch)
       await get().refresh()
     } catch (err) {
       window.alert(`Couldn't remove the worktree:\n\n${(err as Error).message}`)
+      await get().refresh()
     }
   },
 

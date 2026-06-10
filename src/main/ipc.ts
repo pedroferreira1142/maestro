@@ -46,7 +46,12 @@ export function registerIpc(
   ipcMain.handle('worktree:create', (_e, parentSessionId: string, opts: CreateWorktreeOpts) =>
     sessions.createWorktreeSession(parentSessionId, opts)
   )
-  ipcMain.handle('worktree:merge', (_e, sessionId: string) => sessions.mergeWorktree(sessionId))
+  ipcMain.handle('worktree:state', (_e, sessionId: string) =>
+    sessions.getWorktreeTaskState(sessionId)
+  )
+  ipcMain.handle('worktree:merge', (_e, sessionId: string, commitFirst: boolean) =>
+    sessions.mergeWorktree(sessionId, commitFirst)
+  )
   ipcMain.handle('worktree:remove', (_e, sessionId: string, deleteBranch: boolean) =>
     sessions.removeWorktree(sessionId, deleteBranch)
   )
