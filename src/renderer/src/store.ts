@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AttachmentInfo,
   FsEvent,
   RepoCategory,
   SessionInfo,
@@ -78,6 +79,8 @@ interface AppStore {
   explorerVisible: boolean
   viewers: Record<string, ViewerState>
   recent: Record<string, FsEvent[]>
+  /** Per-session image attachment history (newest first), keyed by session id. */
+  attachments: Record<string, AttachmentInfo[]>
   /** Bumped per terminal on restart to remount its xterm. */
   epochs: Record<string, number>
   /** Context-profile categories and the skills they can toggle. */
@@ -128,6 +131,12 @@ interface AppStore {
   jumpToSession(index: number): void
   applyStatus(terminalId: string, status: SessionStatus): void
   applyFsEvents(id: string, events: FsEvent[]): void
+  loadAttachments(sessionId: string): Promise<void>
+  /** Save the clipboard image as an attachment; null when no image is on the clipboard. */
+  attachClipboardImage(sessionId: string): Promise<AttachmentInfo | null>
+  /** Attach a dropped file: by path when the OS provides one, else by content. */
+  attachDroppedFile(sessionId: string, file: File): Promise<AttachmentInfo | null>
+  deleteAttachment(sessionId: string, fileName: string): Promise<void>
 }
 
 /** Default active tab for a session: its persisted active terminal, else first. */
@@ -142,6 +151,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   explorerVisible: true,
   viewers: {},
   recent: {},
+  attachments: {},
   epochs: {},
   categories: [],
   skills: [],
@@ -463,6 +473,37 @@ export const useStore = create<AppStore>()((set, get) => ({
         return { ...next, status: aggregate(next) }
       })
     }))
+  },
+
+  async loadAttachments(sessionId) {
+    const list = await window.api.listAttachments(sessionId)
+    set((st) => ({ attachments: { ...st.attachments, [sessionId]: list } }))
+  },
+
+  async attachClipboardImage(sessionId) {
+    const info = await window.api.attachClipboardImage(sessionId)
+    if (info) await get().loadAttachments(sessionId)
+    return info
+  },
+
+  async attachDroppedFile(sessionId, file) {
+    const path = window.api.pathForFile(file)
+    let info: AttachmentInfo | null = null
+    if (path) {
+      info = await window.api.attachImageFile(sessionId, path)
+    } else if (file.type.startsWith('image/')) {
+      // No filesystem path (e.g. an image dragged out of a browser).
+      const ext = file.type === 'image/jpeg' ? '.jpg' : `.${file.type.slice(6)}`
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      info = await window.api.attachImageData(sessionId, file.name || `dropped${ext}`, bytes)
+    }
+    if (info) await get().loadAttachments(sessionId)
+    return info
+  },
+
+  async deleteAttachment(sessionId, fileName) {
+    await window.api.deleteAttachment(sessionId, fileName)
+    await get().loadAttachments(sessionId)
   },
 
   applyFsEvents(id, events) {

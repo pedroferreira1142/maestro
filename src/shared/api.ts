@@ -1,4 +1,5 @@
 import type {
+  AttachmentInfo,
   DirEntry,
   FileContent,
   FsEvent,
@@ -95,6 +96,21 @@ export interface Api {
   onFsEvents(cb: (id: string, events: FsEvent[]) => void): Unsubscribe
   openInEditor(id: string, relPath: string): Promise<void>
   revealInExplorer(id: string, relPath: string): Promise<void>
+
+  // chat image attachments (history shown below the file explorer)
+  /** Save the clipboard image as an attachment; null when the clipboard has no image. */
+  attachClipboardImage(sessionId: string): Promise<AttachmentInfo | null>
+  /** Copy an image file (dropped from the OS) into the session's attachments. */
+  attachImageFile(sessionId: string, srcPath: string): Promise<AttachmentInfo | null>
+  /** Save raw image bytes (dropped content without a filesystem path). */
+  attachImageData(sessionId: string, name: string, bytes: Uint8Array): Promise<AttachmentInfo | null>
+  /** Newest-first attachment history for a session. */
+  listAttachments(sessionId: string): Promise<AttachmentInfo[]>
+  /** Full-size image as a data URL, for the preview lightbox. */
+  readAttachment(sessionId: string, fileName: string): Promise<string>
+  deleteAttachment(sessionId: string, fileName: string): Promise<void>
+  /** Absolute path of a dragged-in File (Electron webUtils); '' when it has none. */
+  pathForFile(file: File): string
 
   // misc
   openExternal(url: string): void

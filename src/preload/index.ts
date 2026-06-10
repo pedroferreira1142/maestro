@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   FsEvent,
@@ -80,6 +80,24 @@ const api: Api = {
     subscribe('fs:events', (id, events) => cb(id as string, events as FsEvent[])),
   openInEditor: (id, relPath) => ipcRenderer.invoke('fs:openInEditor', id, relPath),
   revealInExplorer: (id, relPath) => ipcRenderer.invoke('fs:reveal', id, relPath),
+
+  attachClipboardImage: (sessionId) => ipcRenderer.invoke('attachments:clipboard', sessionId),
+  attachImageFile: (sessionId, srcPath) =>
+    ipcRenderer.invoke('attachments:file', sessionId, srcPath),
+  attachImageData: (sessionId, name, bytes: Uint8Array) =>
+    ipcRenderer.invoke('attachments:data', sessionId, name, bytes),
+  listAttachments: (sessionId) => ipcRenderer.invoke('attachments:list', sessionId),
+  readAttachment: (sessionId, fileName) =>
+    ipcRenderer.invoke('attachments:read', sessionId, fileName),
+  deleteAttachment: (sessionId, fileName) =>
+    ipcRenderer.invoke('attachments:delete', sessionId, fileName),
+  pathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  },
 
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
