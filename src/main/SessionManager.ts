@@ -353,11 +353,28 @@ export class SessionManager {
         config.folder.replace(/\\/g, '/')
       )
       if (registered) {
+        let removed = false
         try {
           await Git.removeWorktree(baseFolder, config.folder, true)
+          removed = true
         } catch {
           await sleep(1000) // file locks can outlive the process briefly
-          await Git.removeWorktree(baseFolder, config.folder, true)
+          try {
+            await Git.removeWorktree(baseFolder, config.folder, true)
+            removed = true
+          } catch {
+            // fall through to the manual path below
+          }
+        }
+        if (!removed) {
+          // Damaged worktree (e.g. "is not a working tree": registration and
+          // folder out of sync from an earlier failed removal). Git can't
+          // remove what it half-forgot — delete manually, then prune the
+          // dangling registration.
+          if (existsSync(config.folder)) {
+            rmSync(config.folder, { recursive: true, force: true })
+          }
+          await Git.pruneWorktrees(baseFolder)
         }
       } else if (existsSync(config.folder)) {
         // Orphaned leftover of a failed removal — git no longer tracks it.

@@ -349,7 +349,9 @@ export function excludeFilePathSync(folder: string): string | null {
     // execFileSync is fine here — this runs once before a claude terminal spawns.
     const out = execFileSync('git', ['-C', folder, 'rev-parse', '--git-path', 'info/exclude'], {
       windowsHide: true,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      // Suppress "fatal: not a git repository" leaking to the app console.
+      stdio: ['ignore', 'pipe', 'ignore']
     }).trim()
     if (!out) return null
     // With `-C folder`, a relative path is relative to `folder`; resolve also
