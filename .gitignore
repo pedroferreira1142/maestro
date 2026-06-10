@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# build output
+out/
+dist/
+dist-electron/
+release/
+
+# typescript incremental build info
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local env
+.env
+.env.local

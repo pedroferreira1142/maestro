@@ -1,0 +1,219 @@
+import { useEffect, useRef, useState } from 'react'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import type { TerminalInfo } from '../../../shared/types'
+import { useStore } from '../store'
+
+const TERM_THEME = {
+  background: '#16171a',
+  foreground: '#d7d8db',
+  cursor: '#d97757',
+  selectionBackground: '#3b4252',
+  black: '#1e2227',
+  red: '#e5484d',
+  green: '#4cc38a',
+  yellow: '#e2b93d',
+  blue: '#58a6ff',
+  magenta: '#bf7af0',
+  cyan: '#39c5cf',
+  white: '#d7d8db',
+  brightBlack: '#6e7178',
+  brightRed: '#ff6369',
+  brightGreen: '#3dd68c',
+  brightYellow: '#f0c000',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#ffffff'
+}
+
+interface Props {
+  sessionId: string
+  terminal: TerminalInfo
+  visible: boolean
+}
+
+export function TerminalHost({ terminal, visible }: Props): JSX.Element {
+  const id = terminal.config.id
+  const containerRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const [showSearch, setShowSearch] = useState(false)
+  const [query, setQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const restartTerminal = useStore((s) => s.restartTerminal)
+  const settings = useStore((s) => s.settings)
+  const isClaude = terminal.config.kind === 'claude'
+
+  useEffect(() => {
+    const term = new Terminal({
+      scrollback: settings?.scrollbackLines ?? 10000,
+      fontFamily: settings?.fontFamily ?? '"Cascadia Mono", Consolas, monospace',
+      fontSize: settings?.fontSize ?? 14,
+      cursorBlink: true,
+      allowProposedApi: true,
+      theme: TERM_THEME
+    })
+    const fit = new FitAddon()
+    const search = new SearchAddon()
+    term.loadAddon(fit)
+    term.loadAddon(search)
+    term.loadAddon(new WebLinksAddon((_e, uri) => window.api.openExternal(uri)))
+    term.open(containerRef.current!)
+    termRef.current = term
+    fitRef.current = fit
+    searchRef.current = search
+
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true
+      const ctrl = ev.ctrlKey
+      const shift = ev.shiftKey
+      const key = ev.key.toLowerCase()
+      if (ctrl && shift && key === 'c') {
+        const sel = term.getSelection()
+        if (sel) window.api.clipboardWrite(sel)
+        return false
+      }
+      if (ctrl && !shift && key === 'c' && term.hasSelection()) {
+        window.api.clipboardWrite(term.getSelection())
+        term.clearSelection()
+        return false
+      }
+      if (ctrl && shift && key === 'v') {
+        void window.api.clipboardRead().then((t) => t && term.paste(t))
+        return false
+      }
+      if (ctrl && !shift && key === 'f') {
+        setShowSearch(true)
+        setTimeout(() => searchInputRef.current?.focus(), 0)
+        return false
+      }
+      // App-level shortcuts: skip xterm handling, let them bubble to the window listener.
+      if (ctrl && (ev.key === 'Tab' || /^[1-9]$/.test(ev.key))) return false
+      if (ctrl && shift && ['n', 'w', 'e'].includes(key)) return false
+      if (ctrl && !shift && key === 'b') return false
+      return true
+    })
+
+    term.onData((d) => window.api.ptyWrite(id, d))
+    term.onResize(({ cols, rows }) => window.api.ptyResize(id, cols, rows))
+
+    // Subscribe before attach: main only forwards live data after the attach
+    // snapshot, so buffering until replay lands gives a gapless ordered stream.
+    let replayed = false
+    const pending: string[] = []
+    const unsub = window.api.onPtyData((sid, data) => {
+      if (sid !== id) return
+      if (replayed) term.write(data)
+      else pending.push(data)
+    })
+    void window.api.ptyAttach(id).then((replay) => {
+      if (replay) term.write(replay)
+      for (const d of pending) term.write(d)
+      pending.length = 0
+      replayed = true
+      if (containerRef.current?.offsetParent) fit.fit()
+    })
+
+    const ro = new ResizeObserver(() => {
+      // offsetParent is null while display:none — fitting then would corrupt cols/rows
+      if (containerRef.current?.offsetParent) fit.fit()
+    })
+    ro.observe(containerRef.current!)
+
+    return () => {
+      unsub()
+      ro.disconnect()
+      term.dispose()
+      termRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  useEffect(() => {
+    if (visible) {
+      requestAnimationFrame(() => {
+        fitRef.current?.fit()
+        termRef.current?.focus()
+      })
+    }
+  }, [visible])
+
+  const onContextMenu = (): void => {
+    const term = termRef.current
+    if (!term) return
+    if (term.hasSelection()) {
+      window.api.clipboardWrite(term.getSelection())
+      term.clearSelection()
+    } else {
+      void window.api.clipboardRead().then((t) => t && term.paste(t))
+    }
+  }
+
+  const closeSearch = (): void => {
+    setShowSearch(false)
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }
+
+  const ended = terminal.status === 'exited' || terminal.status === 'error'
+
+  return (
+    <div className="term-wrap" style={{ display: visible ? 'block' : 'none' }}>
+      <div className="term-container" ref={containerRef} onContextMenu={onContextMenu} />
+      {showSearch && (
+        <div className="term-search">
+          <input
+            ref={searchInputRef}
+            value={query}
+            placeholder="Search terminal…"
+            onChange={(e) => {
+              setQuery(e.target.value)
+              searchRef.current?.findNext(e.target.value, { incremental: true })
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.shiftKey) searchRef.current?.findPrevious(query)
+              else if (e.key === 'Enter') searchRef.current?.findNext(query)
+              else if (e.key === 'Escape') closeSearch()
+            }}
+          />
+          <button className="btn ghost" onClick={closeSearch}>
+            ✕
+          </button>
+        </div>
+      )}
+      {ended && (
+        <div className="term-overlay">
+          <div className="term-overlay-card">
+            <p>
+              {terminal.status === 'error'
+                ? `${terminal.config.kind} failed to start`
+                : `${terminal.config.kind} exited${
+                    terminal.exitCode !== null ? ` (code ${terminal.exitCode})` : ''
+                  }`}
+            </p>
+            <div className="row">
+              {isClaude ? (
+                <>
+                  <button className="btn" onClick={() => void restartTerminal(id, 'resume')}>
+                    Restart — resume conversation
+                  </button>
+                  <button className="btn" onClick={() => void restartTerminal(id, 'fresh')}>
+                    Restart fresh
+                  </button>
+                </>
+              ) : (
+                <button className="btn" onClick={() => void restartTerminal(id, 'fresh')}>
+                  Restart
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
