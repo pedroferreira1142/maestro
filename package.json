@@ -1,6 +1,6 @@
 {
   "name": "maestro",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Maestro — run and conduct multiple Claude Code CLI sessions across repos in one window, with git-worktree parallel tasks",
   "main": "out/main/index.js",
   "author": "Pedro Ferreira <pedroferreira1142@gmail.com>",

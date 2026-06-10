@@ -194,13 +194,26 @@ export class SessionManager {
     const registered = (await Git.listWorktreePaths(repoRoot)).includes(
       worktreePath.replace(/\\/g, '/')
     )
+    let freshlyCreated = false
     if (registered && existsSync(worktreePath)) {
       // Adopt: worktree already live (a task whose session entry was lost).
     } else if (await Git.branchExists(repoRoot, branch)) {
       // Branch survives from an earlier task — re-attach a worktree to it.
       await Git.addWorktreeForBranch(repoRoot, worktreePath, branch)
+      freshlyCreated = true
     } else {
       await Git.addWorktree(repoRoot, worktreePath, branch, baseBranch)
+      freshlyCreated = true
+    }
+
+    // A worktree is a clean checkout with no gitignored local config; copy
+    // .env-style files (per .worktreeinclude) so the task's claude can run the app.
+    if (freshlyCreated) {
+      try {
+        Git.copyWorktreeIncludes(repoRoot, worktreePath)
+      } catch (err) {
+        console.error('copyWorktreeIncludes failed', err)
+      }
     }
 
     const claudeTerminal: TerminalConfig = {
@@ -272,6 +285,17 @@ export class SessionManager {
         ok: false,
         conflict: false,
         output: 'The worktree folder no longer exists — remove this task instead.'
+      }
+    }
+    if (!(await Git.branchExists(baseFolder, branch))) {
+      return {
+        ok: false,
+        conflict: false,
+        output:
+          `The task branch "${branch}" no longer exists in the repo.\n\n` +
+          `If claude made its own worktree (e.g. "claude --worktree" or the EnterWorktree tool), ` +
+          `its commits are on a different branch Maestro doesn't track. Commit your work on ` +
+          `"${branch}" inside this task's folder, or remove the task.`
       }
     }
 
