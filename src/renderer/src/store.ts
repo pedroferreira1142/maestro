@@ -127,6 +127,8 @@ interface AppStore {
   backgroundDataUrl: string | null
   /** Whether the background-image dialog is open. */
   backgroundDialogOpen: boolean
+  /** Whether the global scrollback-search palette (Ctrl+Shift+F) is open. */
+  globalSearchOpen: boolean
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -216,6 +218,8 @@ interface AppStore {
   clearBackground(): Promise<void>
   /** Persist a new background image opacity (0–1). */
   setBackgroundOpacity(opacity: number): Promise<void>
+  openGlobalSearch(): void
+  closeGlobalSearch(): void
 }
 
 /** Default active tab for a session: its persisted active terminal, else first. */
@@ -248,6 +252,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   features: [],
   backgroundDataUrl: null,
   backgroundDialogOpen: false,
+  globalSearchOpen: false,
 
   async init() {
     const [settings, savedActive, backgroundDataUrl] = await Promise.all([
@@ -820,6 +825,14 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   openBackgroundDialog() {
     set({ backgroundDialogOpen: true })
+  },
+
+  openGlobalSearch() {
+    set({ globalSearchOpen: true })
+  },
+
+  closeGlobalSearch() {
+    set({ globalSearchOpen: false })
   },
 
   closeBackgroundDialog() {

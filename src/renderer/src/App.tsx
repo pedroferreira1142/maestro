@@ -5,6 +5,7 @@ import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
+import { GlobalSearchDialog } from './components/GlobalSearchDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { SentinelDialog } from './components/SentinelDialog'
@@ -38,6 +39,7 @@ export default function App(): JSX.Element {
   const autoExpandSessionId = useStore((s) => s.autoExpandSessionId)
   const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
+  const globalSearchOpen = useStore((s) => s.globalSearchOpen)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -93,6 +95,9 @@ export default function App(): JSX.Element {
       } else if (!shift && ev.key.toLowerCase() === 'b') {
         ev.preventDefault()
         st.toggleExplorer()
+      } else if (shift && ev.key.toLowerCase() === 'f') {
+        ev.preventDefault()
+        st.openGlobalSearch()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -174,6 +179,7 @@ export default function App(): JSX.Element {
       {featuresSessionId && <FeaturesDialog />}
       {autoExpandSessionId && <AutoExpandDialog />}
       {backgroundDialogOpen && <BackgroundDialog />}
+      {globalSearchOpen && <GlobalSearchDialog />}
     </div>
   )
 }
