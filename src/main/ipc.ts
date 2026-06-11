@@ -89,6 +89,12 @@ export function registerIpc(
     sessions.getGitLog(sessionId, limit)
   )
   ipcMain.handle('git:init', (_e, sessionId: string) => sessions.initRepo(sessionId))
+  ipcMain.handle('git:changedFiles', (_e, sessionId: string) =>
+    sessions.getGitChangedFiles(sessionId)
+  )
+  ipcMain.handle('git:fileDiff', (_e, sessionId: string, path: string) =>
+    sessions.getGitFileDiff(sessionId, path)
+  )
 
   // --- terminals (within a session's folder) ---
   ipcMain.handle('terminal:add', (_e, sessionId: string, kind: TerminalKind) =>

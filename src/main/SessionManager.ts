@@ -4,6 +4,8 @@ import { basename } from 'path'
 import { existsSync, rmSync } from 'fs'
 import {
   GitCommit,
+  GitFileChange,
+  GitFileDiff,
   GitStatus,
   MergeResult,
   RepoCategory,
@@ -208,6 +210,20 @@ export class SessionManager {
     const config = this.getConfig(sessionId)
     if (!config) return []
     return Git.gitLog(config.folder, limit)
+  }
+
+  /** Changed files (staged, unstaged, untracked) in a session's working tree. */
+  async getGitChangedFiles(sessionId: string): Promise<GitFileChange[]> {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    return Git.gitChangedFiles(config.folder)
+  }
+
+  /** Unified diff of one file's working-tree state against HEAD (for the diff tab). */
+  async getGitFileDiff(sessionId: string, path: string): Promise<GitFileDiff> {
+    const config = this.getConfig(sessionId)
+    if (!config) return { diff: '', binary: false, truncated: false }
+    return Git.gitFileDiff(config.folder, path)
   }
 
   /**

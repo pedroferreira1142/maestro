@@ -634,6 +634,52 @@ body {
 .git-chip.untracked { color: var(--working); }
 .git-chip.clean { color: var(--green); }
 
+.git-files {
+  display: flex;
+  flex-direction: column;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+
+.git-file {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 2px 12px;
+  cursor: pointer;
+}
+
+.git-file:hover {
+  background: var(--panel-2);
+}
+
+.git-file-status {
+  flex: none;
+  min-width: 14px;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.git-file-status.s-m { color: var(--attention); }
+.git-file-status.s-a { color: var(--green); }
+.git-file-status.s-d { color: var(--error); }
+.git-file-status.s-r,
+.git-file-status.s-c { color: var(--accent); }
+.git-file-status.s-u { color: var(--error); }
+.git-file-status.s-untracked { color: var(--working); }
+
+.git-file-path {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* ellipsis on the left so the file name stays visible */
+  text-align: left;
+}
+
 .git-history {
   display: flex;
   flex-direction: column;
@@ -1576,6 +1622,44 @@ body {
 .viewer-editor .cm-scroller {
   font-family: 'Cascadia Mono', Consolas, monospace;
   font-size: 13px;
+}
+
+/* ---------- diff viewer ---------- */
+
+.diff-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  margin-right: 7px;
+  border-radius: 6px;
+  background: rgba(217, 119, 87, 0.18);
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+.tab.diff-tab .tab-diff-badge {
+  flex: none;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.viewer-editor .cm-diff-added {
+  background: rgba(76, 195, 138, 0.14);
+}
+
+.viewer-editor .cm-diff-removed {
+  background: rgba(229, 72, 77, 0.14);
+}
+
+.viewer-editor .cm-diff-hunk {
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--working);
+}
+
+.viewer-editor .cm-diff-meta {
+  color: var(--dim);
 }
 
 .viewer-image {
