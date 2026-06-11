@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AttachmentInfo, DirEntry, SessionInfo } from '../../../shared/types'
 import { fsBus } from '../fsBus'
 import { useStore } from '../store'
+import { ActionsPanel } from './ActionsPanel'
 
 const FLASH_MS = 8000
 
@@ -214,6 +215,7 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
         </button>
       </div>
       <div className="explorer-tree">{renderDir('', 0)}</div>
+      <ActionsPanel sessionId={id} />
       {recent.length > 0 && (
         <div className="recent">
           <div className="recent-header">Recent changes</div>
