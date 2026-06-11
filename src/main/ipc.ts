@@ -2,7 +2,14 @@ import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { spawn } from 'child_process'
 import { dirname } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
-import { RepoCategory, SessionConfig, Settings, TerminalConfig, TerminalKind } from '../shared/types'
+import {
+  RepoCategory,
+  ReusableAction,
+  SessionConfig,
+  Settings,
+  TerminalConfig,
+  TerminalKind
+} from '../shared/types'
 import {
   attachClipboardImage,
   attachImageData,
@@ -94,6 +101,13 @@ export function registerIpc(
   ipcMain.handle('claude:listMcpServers', () => readUserMcpServers())
   ipcMain.handle('category:detect', (_e, folder: string) =>
     detectCategory(folder, sessions.categories)
+  )
+
+  // --- reusable actions (saved shell commands) ---
+  ipcMain.handle('actions:list', () => sessions.actions)
+  ipcMain.handle('actions:save', (_e, actions: ReusableAction[]) => sessions.saveActions(actions))
+  ipcMain.handle('actions:run', (_e, sessionId: string, actionId: string) =>
+    sessions.runAction(sessionId, actionId)
   )
 
   ipcMain.handle('dialog:pickFolder', async () => {

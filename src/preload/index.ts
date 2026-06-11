@@ -3,6 +3,7 @@ import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   FsEvent,
   RepoCategory,
+  ReusableAction,
   SessionConfig,
   SessionStatus,
   Settings,
@@ -54,6 +55,10 @@ const api: Api = {
   ptyAttach: (terminalId) => ipcRenderer.invoke('pty:attach', terminalId),
   onPtyData: (cb) =>
     subscribe('pty:data', (id, data) => cb(id as string, data as string)),
+
+  listActions: () => ipcRenderer.invoke('actions:list'),
+  saveActions: (actions: ReusableAction[]) => ipcRenderer.invoke('actions:save', actions),
+  runAction: (sessionId, actionId) => ipcRenderer.invoke('actions:run', sessionId, actionId),
 
   listCategories: () => ipcRenderer.invoke('categories:list'),
   saveCategories: (categories: RepoCategory[]) =>
