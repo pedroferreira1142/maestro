@@ -17,6 +17,14 @@ function fmtCost(v: number): string {
   return `$${v.toFixed(2)}`
 }
 
+/** Share of a total as a whole-ish percentage; '<1%' for tiny non-zero slices. */
+function fmtPct(part: number, whole: number): string {
+  if (whole <= 0 || part <= 0) return '—'
+  const pct = (part / whole) * 100
+  if (pct < 1) return '<1%'
+  return `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%`
+}
+
 function fmtTokens(v: number): string {
   if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
@@ -185,6 +193,7 @@ export function UsageWidget(): JSX.Element {
                 </span>
                 <span className="usage-row-today">{r.today.costUSD > 0 ? fmtCost(r.today.costUSD) : '—'}</span>
                 <span className="usage-row-total">{fmtCost(r.total.costUSD)}</span>
+                <span className="usage-row-pct">{fmtPct(r.total.costUSD, snap.total.costUSD)}</span>
               </div>
             ))}
             {rest.length > 0 && (
@@ -192,12 +201,14 @@ export function UsageWidget(): JSX.Element {
                 <span className="usage-row-name">{rest.length} more projects</span>
                 <span className="usage-row-today">{restToday > 0 ? fmtCost(restToday) : '—'}</span>
                 <span className="usage-row-total">{fmtCost(restTotal)}</span>
+                <span className="usage-row-pct">{fmtPct(restTotal, snap.total.costUSD)}</span>
               </div>
             )}
             <div className="usage-row head">
               <span className="usage-row-name" />
               <span className="usage-row-today">today</span>
               <span className="usage-row-total">total</span>
+              <span className="usage-row-pct">share</span>
             </div>
           </div>
 
@@ -209,6 +220,7 @@ export function UsageWidget(): JSX.Element {
                   <div className="usage-row" key={model} title={`${fmtTokens(totalTokens(totals))} tokens`}>
                     <span className="usage-row-name">{model.replace(/^claude-/, '')}</span>
                     <span className="usage-row-total">{fmtCost(totals.costUSD)}</span>
+                    <span className="usage-row-pct">{fmtPct(totals.costUSD, snap.total.costUSD)}</span>
                   </div>
                 ))}
               </div>
