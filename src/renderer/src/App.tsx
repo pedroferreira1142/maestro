@@ -3,8 +3,11 @@ import { ActionDialog } from './components/ActionDialog'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
+import { CommandPalette } from './components/CommandPalette'
+import { DiffViewer } from './components/DiffViewer'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
+import { GlobalSearchDialog } from './components/GlobalSearchDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { SentinelDialog } from './components/SentinelDialog'
@@ -14,8 +17,8 @@ import { StatusBar } from './components/StatusBar'
 import { TabStrip } from './components/TabStrip'
 import { TerminalHost } from './components/TerminalHost'
 import { fsBus } from './fsBus'
-import { useStore } from './store'
-import { focusActiveTerminal } from './termRegistry'
+import { diffTabPath, isDiffTab, useStore } from './store'
+import { focusActiveTerminal, jumpToAttentionTerminal } from './termRegistry'
 import type { SessionInfo } from '../../shared/types'
 
 function defaultActive(session: SessionInfo): string {
@@ -38,6 +41,8 @@ export default function App(): JSX.Element {
   const autoExpandSessionId = useStore((s) => s.autoExpandSessionId)
   const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
+  const globalSearchOpen = useStore((s) => s.globalSearchOpen)
+  const paletteOpen = useStore((s) => s.paletteOpen)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -93,6 +98,15 @@ export default function App(): JSX.Element {
       } else if (!shift && ev.key.toLowerCase() === 'b') {
         ev.preventDefault()
         st.toggleExplorer()
+      } else if (!shift && (ev.key === '`' || ev.code === 'Backquote')) {
+        ev.preventDefault()
+        jumpToAttentionTerminal()
+      } else if (shift && ev.key.toLowerCase() === 'f') {
+        ev.preventDefault()
+        st.openGlobalSearch()
+      } else if (!shift && ev.key.toLowerCase() === 'k') {
+        ev.preventDefault()
+        st.togglePalette()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -155,11 +169,19 @@ export default function App(): JSX.Element {
                 ))
               })}
               {active && !activeTabIsTerminal && (
-                <FileViewer
-                  key={`${active.config.id}:${activeTab}`}
-                  sessionId={active.config.id}
-                  relPath={activeTab}
-                />
+                isDiffTab(activeTab) ? (
+                  <DiffViewer
+                    key={`${active.config.id}:${activeTab}`}
+                    sessionId={active.config.id}
+                    relPath={diffTabPath(activeTab)}
+                  />
+                ) : (
+                  <FileViewer
+                    key={`${active.config.id}:${activeTab}`}
+                    sessionId={active.config.id}
+                    relPath={activeTab}
+                  />
+                )
               )}
             </div>
             {active && <StatusBar session={active} />}
@@ -174,6 +196,8 @@ export default function App(): JSX.Element {
       {featuresSessionId && <FeaturesDialog />}
       {autoExpandSessionId && <AutoExpandDialog />}
       {backgroundDialogOpen && <BackgroundDialog />}
+      {globalSearchOpen && <GlobalSearchDialog />}
+      {paletteOpen && <CommandPalette />}
     </div>
   )
 }

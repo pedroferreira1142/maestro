@@ -47,6 +47,8 @@ const api: Api = {
   gitStatus: (sessionId) => ipcRenderer.invoke('git:status', sessionId),
   gitLog: (sessionId, limit) => ipcRenderer.invoke('git:log', sessionId, limit),
   gitInit: (sessionId) => ipcRenderer.invoke('git:init', sessionId),
+  gitChangedFiles: (sessionId) => ipcRenderer.invoke('git:changedFiles', sessionId),
+  gitFileDiff: (sessionId, path) => ipcRenderer.invoke('git:fileDiff', sessionId, path),
 
   addTerminal: (sessionId, kind) => ipcRenderer.invoke('terminal:add', sessionId, kind),
   closeTerminal: (sessionId, terminalId) =>
@@ -84,6 +86,11 @@ const api: Api = {
   listActions: () => ipcRenderer.invoke('actions:list'),
   saveActions: (actions: ReusableAction[]) => ipcRenderer.invoke('actions:save', actions),
   runAction: (sessionId, actionId) => ipcRenderer.invoke('actions:run', sessionId, actionId),
+
+  queueAdd: (sessionId, text) => ipcRenderer.invoke('queue:add', sessionId, text),
+  queueRemove: (sessionId, itemId) => ipcRenderer.invoke('queue:remove', sessionId, itemId),
+  queueMove: (sessionId, itemId, delta) =>
+    ipcRenderer.invoke('queue:move', sessionId, itemId, delta),
 
   listCategories: () => ipcRenderer.invoke('categories:list'),
   saveCategories: (categories: RepoCategory[]) =>

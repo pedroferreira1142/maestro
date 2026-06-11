@@ -4,6 +4,8 @@ import { basename } from 'path'
 import { existsSync, rmSync } from 'fs'
 import {
   GitCommit,
+  GitFileChange,
+  GitFileDiff,
   GitStatus,
   MergeResult,
   RepoCategory,
@@ -49,6 +51,14 @@ const ACTION_SHELL_READY_MS = 1200
  */
 const CLAUDE_SUBMIT_DELAY_MS = 300
 
+/**
+ * How long a claude terminal must sit idle, continuously, before the next
+ * queued prompt is dispatched to it. The countdown restarts on every idle
+ * transition and the dispatch re-checks the status, so a terminal that wakes
+ * up mid-countdown never receives a prompt.
+ */
+const QUEUE_IDLE_DELAY_MS = 3000
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** True while a pid is still alive (signal 0 probe). */
@@ -75,6 +85,9 @@ const STATUS_PRIORITY: SessionStatus[] = [
 export class SessionManager {
   /** Keyed by terminal id, across all sessions. */
   private ptys = new Map<string, PtySession>()
+
+  /** Pending prompt-queue idle countdowns, keyed by session id. */
+  private queueTimers = new Map<string, NodeJS.Timeout>()
 
   constructor(
     private persistence: Persistence,
@@ -170,6 +183,7 @@ export class SessionManager {
       }
     }
     this.fs.stop(id)
+    this.clearQueueTimer(id)
     void deleteAllAttachments(id).catch(() => {})
     this.state.sessions = this.state.sessions.filter((s) => s.id !== id)
     if (this.state.activeSessionId === id) this.state.activeSessionId = null
@@ -208,6 +222,20 @@ export class SessionManager {
     const config = this.getConfig(sessionId)
     if (!config) return []
     return Git.gitLog(config.folder, limit)
+  }
+
+  /** Changed files (staged, unstaged, untracked) in a session's working tree. */
+  async getGitChangedFiles(sessionId: string): Promise<GitFileChange[]> {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    return Git.gitChangedFiles(config.folder)
+  }
+
+  /** Unified diff of one file's working-tree state against HEAD (for the diff tab). */
+  async getGitFileDiff(sessionId: string, path: string): Promise<GitFileDiff> {
+    const config = this.getConfig(sessionId)
+    if (!config) return { diff: '', binary: false, truncated: false }
+    return Git.gitFileDiff(config.folder, path)
   }
 
   /**
@@ -498,6 +526,7 @@ export class SessionManager {
       )
     }
 
+    this.clearQueueTimer(sessionId)
     this.state.sessions = this.state.sessions.filter((s) => s.id !== sessionId)
     if (this.state.activeSessionId === sessionId) this.state.activeSessionId = null
     this.persistence.scheduleSave()
@@ -648,9 +677,7 @@ export class SessionManager {
    * existing conversation rather than a dedicated per-action tab.
    */
   private runClaudeAction(config: SessionConfig, prompt: string): RunActionResult {
-    let terminal =
-      config.terminals.find((t) => t.id === config.activeTerminalId && t.kind === 'claude') ??
-      config.terminals.filter((t) => t.kind === 'claude').sort((a, b) => a.order - b.order)[0]
+    let terminal = this.claudeTargetTerminal(config)
     let respawned = false
     if (!terminal) {
       terminal = {
@@ -688,6 +715,91 @@ export class SessionManager {
 
     this.notifyChanged()
     return { terminalId, respawned }
+  }
+
+  /** Where prompts for "the session's claude" go: the active claude tab, else the first one. */
+  private claudeTargetTerminal(config: SessionConfig): TerminalConfig | undefined {
+    return (
+      config.terminals.find((t) => t.id === config.activeTerminalId && t.kind === 'claude') ??
+      config.terminals.filter((t) => t.kind === 'claude').sort((a, b) => a.order - b.order)[0]
+    )
+  }
+
+  /** Append a prompt to a session's queue; it dispatches when claude next sits idle. */
+  queueAdd(sessionId: string, text: string): void {
+    const config = this.getConfig(sessionId)
+    const trimmed = text.trim()
+    if (!config || !trimmed) return
+    config.promptQueue = [...(config.promptQueue ?? []), { id: randomUUID(), text: trimmed }]
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+    // The terminal may already be sitting idle, with no further transition
+    // coming to kick the queue — start the idle countdown now.
+    this.scheduleQueueDispatch(sessionId)
+  }
+
+  queueRemove(sessionId: string, itemId: string): void {
+    const config = this.getConfig(sessionId)
+    if (!config?.promptQueue) return
+    config.promptQueue = config.promptQueue.filter((q) => q.id !== itemId)
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+  }
+
+  /** Move a queued prompt one slot up (-1) or down (+1); dispatch follows display order. */
+  queueMove(sessionId: string, itemId: string, delta: -1 | 1): void {
+    const config = this.getConfig(sessionId)
+    const queue = config?.promptQueue
+    if (!queue) return
+    const idx = queue.findIndex((q) => q.id === itemId)
+    const target = idx + delta
+    if (idx < 0 || target < 0 || target >= queue.length) return
+    ;[queue[idx], queue[target]] = [queue[target], queue[idx]]
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+  }
+
+  /** (Re)start a session's prompt-queue idle countdown. */
+  private scheduleQueueDispatch(sessionId: string): void {
+    this.clearQueueTimer(sessionId)
+    const config = this.getConfig(sessionId)
+    if (!config?.promptQueue?.length) return
+    this.queueTimers.set(
+      sessionId,
+      setTimeout(() => {
+        this.queueTimers.delete(sessionId)
+        this.dispatchQueuedPrompt(sessionId)
+      }, QUEUE_IDLE_DELAY_MS)
+    )
+  }
+
+  private clearQueueTimer(sessionId: string): void {
+    const timer = this.queueTimers.get(sessionId)
+    if (timer) clearTimeout(timer)
+    this.queueTimers.delete(sessionId)
+  }
+
+  /**
+   * Send the oldest queued prompt to the session's claude — but only if that
+   * terminal is alive and still idle when the countdown fires. Anything else
+   * (working, needs-attention, starting, exited, error, no claude tab) leaves
+   * the queue untouched; the next idle transition restarts the countdown.
+   */
+  private dispatchQueuedPrompt(sessionId: string): void {
+    const config = this.getConfig(sessionId)
+    const next = config?.promptQueue?.[0]
+    if (!config || !next) return
+    const terminal = this.claudeTargetTerminal(config)
+    if (!terminal) return // session has no claude terminal — never dispatch
+    const pty = this.ptys.get(terminal.id)
+    if (!pty?.alive || pty.detector.current !== 'idle') return
+    config.promptQueue = config.promptQueue!.slice(1)
+    this.persistence.scheduleSave()
+    // Same two-step write as runClaudeAction: a \r in the prompt's chunk would
+    // paste a newline into claude's input box instead of submitting.
+    pty.write(next.text)
+    setTimeout(() => this.ptys.get(terminal.id)?.write('\r'), CLAUDE_SUBMIT_DELAY_MS)
+    this.notifyChanged()
   }
 
   updateTerminal(terminalId: string, patch: Partial<TerminalConfig>): void {
@@ -747,6 +859,8 @@ export class SessionManager {
   }
 
   disposeAll(): void {
+    for (const timer of this.queueTimers.values()) clearTimeout(timer)
+    this.queueTimers.clear()
     for (const pty of this.ptys.values()) pty.kill()
     this.ptys.clear()
     this.fs.stopAll()
@@ -770,12 +884,18 @@ export class SessionManager {
     const win = this.getWin()
     win?.webContents.send('session:status', terminalId, status)
 
-    if (status !== 'needs-attention') return
     const config = this.sessionOfTerminal(terminalId)
     if (!config) return
     const terminal = config.terminals.find((t) => t.id === terminalId)
-    // Only claude terminals raise attention; shells never reach this branch.
+    // Only claude terminals dispatch queues or raise attention; shells stop here.
     if (!terminal || terminal.kind !== 'claude') return
+
+    // Queue dispatch rides the idle transition: claude must then stay idle for
+    // QUEUE_IDLE_DELAY_MS (re-checked when the countdown fires) before the
+    // oldest queued prompt is typed in.
+    if (status === 'idle') this.scheduleQueueDispatch(config.id)
+
+    if (status !== 'needs-attention') return
     const focused = win?.isFocused() ?? false
     const isActive =
       this.state.activeSessionId === config.id && config.activeTerminalId === terminalId

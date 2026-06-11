@@ -1,15 +1,113 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { SessionInfo, SessionStatus } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
 
-const STATUS_GLYPH: Record<SessionStatus, string> = {
+export const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
   working: '⟳',
   'needs-attention': '●',
   idle: '○',
   exited: '✕',
   error: '!'
+}
+
+/**
+ * Popover listing a session's queued prompts, with add/delete/reorder. Fixed-
+ * positioned next to its anchor button — the sidebar list scrolls, so an
+ * absolutely-positioned child would be clipped.
+ */
+function QueuePopover({
+  session,
+  anchor,
+  onClose
+}: {
+  session: SessionInfo
+  anchor: DOMRect
+  onClose: () => void
+}): JSX.Element {
+  const queueAdd = useStore((s) => s.queueAdd)
+  const queueRemove = useStore((s) => s.queueRemove)
+  const queueMove = useStore((s) => s.queueMove)
+  const [text, setText] = useState('')
+
+  const id = session.config.id
+  const queue = session.config.promptQueue ?? []
+  const top = Math.min(anchor.top, Math.max(8, window.innerHeight - 360))
+  const left = anchor.right + 8
+
+  const add = (): void => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    setText('')
+    void queueAdd(id, trimmed)
+  }
+
+  return (
+    <div
+      className="queue-overlay"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClose()
+      }}
+    >
+      <div className="queue-popover" style={{ top, left }} onClick={(e) => e.stopPropagation()}>
+        <div className="queue-popover-title">Prompt queue · {session.config.name}</div>
+        <div className="queue-popover-hint">
+          Sent to claude, in order, whenever it has been idle for a few seconds.
+        </div>
+        <div className="queue-list">
+          {queue.length === 0 && <div className="queue-empty">No prompts queued.</div>}
+          {queue.map((q, i) => (
+            <div className="queue-item" key={q.id}>
+              <span className="queue-item-pos">{i + 1}.</span>
+              <span className="queue-item-text" title={q.text}>
+                {q.text}
+              </span>
+              <button
+                className="btn ghost"
+                title="Move up"
+                disabled={i === 0}
+                onClick={() => void queueMove(id, q.id, -1)}
+              >
+                ↑
+              </button>
+              <button
+                className="btn ghost"
+                title="Move down"
+                disabled={i === queue.length - 1}
+                onClick={() => void queueMove(id, q.id, 1)}
+              >
+                ↓
+              </button>
+              <button
+                className="btn ghost"
+                title="Delete prompt"
+                onClick={() => void queueRemove(id, q.id)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="queue-add-row">
+          <input
+            autoFocus
+            placeholder="Queue a follow-up prompt…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') add()
+              if (e.key === 'Escape') onClose()
+            }}
+          />
+          <button className="btn" disabled={!text.trim()} onClick={add}>
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function SessionEntry({ session, index }: { session: SessionInfo; index: number }): JSX.Element {
@@ -23,11 +121,14 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
+  const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
+  const queueBtnRef = useRef<HTMLButtonElement>(null)
 
   const id = session.config.id
   const isActive = id === activeId
   const worktree = session.config.worktree ?? null
   const category = categories.find((c) => c.id === session.config.categoryId) ?? null
+  const queueCount = session.config.promptQueue?.length ?? 0
 
   const commitRename = (): void => {
     setEditing(false)
@@ -112,6 +213,20 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
           )}
         </div>
       </div>
+      <button
+        ref={queueBtnRef}
+        className={`btn ghost queue-btn${queueCount > 0 ? ' has-items' : ''}`}
+        title="Prompt queue — sent to claude when it goes idle"
+        onClick={(e) => {
+          e.stopPropagation()
+          setQueueAnchor(queueBtnRef.current?.getBoundingClientRect() ?? null)
+        }}
+      >
+        ☰{queueCount > 0 && <span className="queue-badge">{queueCount}</span>}
+      </button>
+      {queueAnchor && (
+        <QueuePopover session={session} anchor={queueAnchor} onClose={() => setQueueAnchor(null)} />
+      )}
       {!worktree && (
         <button
           className="btn ghost fork"

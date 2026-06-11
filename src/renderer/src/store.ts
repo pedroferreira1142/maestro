@@ -16,6 +16,14 @@ import type {
   TerminalKind
 } from '../../shared/types'
 
+/** One terminal waiting for user input, queued when it entered 'needs-attention'. */
+export interface AttentionEntry {
+  sessionId: string
+  terminalId: string
+  /** When the terminal entered 'needs-attention' (as observed by the renderer). */
+  since: number
+}
+
 /** Pending state for the new-session dialog (set after a folder is picked). */
 export interface PendingNewSession {
   folder: string
@@ -78,10 +86,54 @@ function aggregate(session: SessionInfo): SessionStatus {
   return STATUS_PRIORITY.find((s) => present.has(s)) ?? 'idle'
 }
 
+/**
+ * Tab-id encoding for git diff tabs. Plain file tabs are bare relPaths, so
+ * diff tabs carry this prefix to stay distinguishable in the same `tabs` list
+ * ('diff:' is never a valid path start — paths from main are normalized).
+ */
+export const DIFF_TAB_PREFIX = 'diff:'
+
+/** True when a viewer tab id refers to a git diff tab. */
+export function isDiffTab(tab: string): boolean {
+  return tab.startsWith(DIFF_TAB_PREFIX)
+}
+
+/** The repo-root-relative path encoded in a diff tab id. */
+export function diffTabPath(tab: string): string {
+  return tab.slice(DIFF_TAB_PREFIX.length)
+}
+
+/**
+ * Reconcile the attention queue against a fresh session list: drop entries
+ * whose terminal is gone or no longer 'needs-attention', and append terminals
+ * that are 'needs-attention' but missing from the queue (their transition was
+ * never observed — e.g. at startup, where listSessions seeds the statuses).
+ * Existing entries keep their position, so wait order survives refreshes.
+ */
+function reconcileAttentionQueue(
+  queue: AttentionEntry[],
+  sessions: SessionInfo[]
+): AttentionEntry[] {
+  const waiting = new Map<string, string>() // terminalId -> sessionId
+  for (const s of sessions) {
+    for (const t of s.terminals) {
+      if (t.status === 'needs-attention') waiting.set(t.config.id, s.config.id)
+    }
+  }
+  const next = queue.filter((e) => waiting.get(e.terminalId) === e.sessionId)
+  const now = Date.now()
+  for (const [terminalId, sessionId] of waiting) {
+    if (!next.some((e) => e.terminalId === terminalId)) {
+      next.push({ sessionId, terminalId, since: now })
+    }
+  }
+  return next
+}
+
 export interface ViewerState {
-  /** Open file tabs (relPaths). Terminals come from the session config. */
+  /** Open file tabs (relPaths) and diff tabs ('diff:' + repo-relative path). */
   tabs: string[]
-  /** A terminal id or a relPath from `tabs`. */
+  /** A terminal id or an entry from `tabs`. */
   active: string
 }
 
@@ -127,6 +179,12 @@ interface AppStore {
   backgroundDataUrl: string | null
   /** Whether the background-image dialog is open. */
   backgroundDialogOpen: boolean
+  /** Terminals waiting for user input, oldest-waiting first. */
+  attentionQueue: AttentionEntry[]
+  /** Whether the global scrollback-search palette (Ctrl+Shift+F) is open. */
+  globalSearchOpen: boolean
+  /** Whether the Ctrl+K command palette is open. */
+  paletteOpen: boolean
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -150,6 +208,12 @@ interface AppStore {
   removeWorktreeTask(sessionId: string): Promise<void>
   /** Force the Git panel to reload its status + history. */
   refreshGit(): void
+  /** Append a prompt to a session's auto-dispatch queue. */
+  queueAdd(sessionId: string, text: string): Promise<void>
+  /** Delete one queued prompt. */
+  queueRemove(sessionId: string, itemId: string): Promise<void>
+  /** Move a queued prompt one slot up (-1) or down (+1). */
+  queueMove(sessionId: string, itemId: string, delta: -1 | 1): Promise<void>
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
@@ -195,6 +259,8 @@ interface AppStore {
   restartTerminal(terminalId: string, mode: 'fresh' | 'resume'): Promise<void>
   renameTerminal(terminalId: string, title: string): Promise<void>
   openFile(sessionId: string, relPath: string): void
+  /** Open (or focus) the git diff tab for a changed file (repo-root-relative path). */
+  openDiff(sessionId: string, relPath: string): void
   closeTab(sessionId: string, relPath: string): void
   setActiveTab(sessionId: string, tab: string): void
   toggleExplorer(): void
@@ -216,6 +282,11 @@ interface AppStore {
   clearBackground(): Promise<void>
   /** Persist a new background image opacity (0–1). */
   setBackgroundOpacity(opacity: number): Promise<void>
+  openGlobalSearch(): void
+  closeGlobalSearch(): void
+  openPalette(): void
+  closePalette(): void
+  togglePalette(): void
 }
 
 /** Default active tab for a session: its persisted active terminal, else first. */
@@ -248,6 +319,9 @@ export const useStore = create<AppStore>()((set, get) => ({
   features: [],
   backgroundDataUrl: null,
   backgroundDialogOpen: false,
+  attentionQueue: [],
+  globalSearchOpen: false,
+  paletteOpen: false,
 
   async init() {
     const [settings, savedActive, backgroundDataUrl] = await Promise.all([
@@ -288,7 +362,8 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({
       sessions,
       viewers: nextViewers,
-      activeId: stillActive ? activeId : (sessions[0]?.config.id ?? null)
+      activeId: stillActive ? activeId : (sessions[0]?.config.id ?? null),
+      attentionQueue: reconcileAttentionQueue(get().attentionQueue, sessions)
     })
   },
 
@@ -517,6 +592,22 @@ export const useStore = create<AppStore>()((set, get) => ({
     }
   },
 
+  async queueAdd(sessionId, text) {
+    if (!text.trim()) return
+    await window.api.queueAdd(sessionId, text)
+    await get().refresh()
+  },
+
+  async queueRemove(sessionId, itemId) {
+    await window.api.queueRemove(sessionId, itemId)
+    await get().refresh()
+  },
+
+  async queueMove(sessionId, itemId, delta) {
+    await window.api.queueMove(sessionId, itemId, delta)
+    await get().refresh()
+  },
+
   async loadCategoriesAndSkills() {
     const [categories, skills] = await Promise.all([
       window.api.listCategories(),
@@ -742,6 +833,16 @@ export const useStore = create<AppStore>()((set, get) => ({
     })
   },
 
+  openDiff(sessionId, relPath) {
+    const tab = DIFF_TAB_PREFIX + relPath
+    set((st) => {
+      const s = st.sessions.find((x) => x.config.id === sessionId)
+      const v = st.viewers[sessionId] ?? { tabs: [], active: s ? defaultActive(s) : 'terminal' }
+      const tabs = v.tabs.includes(tab) ? v.tabs : [...v.tabs, tab]
+      return { viewers: { ...st.viewers, [sessionId]: { tabs, active: tab } } }
+    })
+  },
+
   closeTab(sessionId, relPath) {
     set((st) => {
       const v = st.viewers[sessionId]
@@ -784,8 +885,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   applyStatus(terminalId, status) {
-    set((st) => ({
-      sessions: st.sessions.map((s) => {
+    set((st) => {
+      const sessions = st.sessions.map((s) => {
         if (!s.terminals.some((t) => t.config.id === terminalId)) return s
         const terminals = s.terminals.map((t) =>
           t.config.id === terminalId ? { ...t, status, lastOutputAt: Date.now() } : t
@@ -793,7 +894,23 @@ export const useStore = create<AppStore>()((set, get) => ({
         const next = { ...s, terminals }
         return { ...next, status: aggregate(next) }
       })
-    }))
+      // Keep the attention queue in sync with the transition: enqueue when a
+      // terminal enters 'needs-attention', dequeue the moment it leaves.
+      let attentionQueue = st.attentionQueue
+      const queued = attentionQueue.some((e) => e.terminalId === terminalId)
+      if (status === 'needs-attention' && !queued) {
+        const owner = sessions.find((s) => s.terminals.some((t) => t.config.id === terminalId))
+        if (owner) {
+          attentionQueue = [
+            ...attentionQueue,
+            { sessionId: owner.config.id, terminalId, since: Date.now() }
+          ]
+        }
+      } else if (status !== 'needs-attention' && queued) {
+        attentionQueue = attentionQueue.filter((e) => e.terminalId !== terminalId)
+      }
+      return { sessions, attentionQueue }
+    })
   },
 
   async loadAttachments(sessionId) {
@@ -831,6 +948,14 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({ backgroundDialogOpen: true })
   },
 
+  openGlobalSearch() {
+    set({ globalSearchOpen: true })
+  },
+
+  closeGlobalSearch() {
+    set({ globalSearchOpen: false })
+  },
+
   closeBackgroundDialog() {
     set({ backgroundDialogOpen: false })
   },
@@ -855,6 +980,18 @@ export const useStore = create<AppStore>()((set, get) => ({
     if (!settings) return
     set({ settings: { ...settings, backgroundOpacity: opacity } })
     await window.api.setSettings({ backgroundOpacity: opacity })
+  },
+
+  openPalette() {
+    set({ paletteOpen: true })
+  },
+
+  closePalette() {
+    set({ paletteOpen: false })
+  },
+
+  togglePalette() {
+    set((st) => ({ paletteOpen: !st.paletteOpen }))
   },
 
   applyFsEvents(id, events) {

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { SessionInfo } from '../../../shared/types'
 import { useStore } from '../store'
+import { jumpToAttentionTerminal } from '../termRegistry'
 
 export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
   const [, tick] = useState(0)
   const viewer = useStore((s) => s.viewers[session.config.id])
+  const waiting = useStore((s) => s.attentionQueue.length)
 
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 5000)
@@ -29,6 +31,15 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
         {session.config.folder}
       </span>
       {term?.pid != null && <span>pid {term.pid}</span>}
+      {waiting > 0 && (
+        <button
+          className="statusbar-attention"
+          title="Jump to the longest-waiting terminal (Ctrl+`)"
+          onClick={jumpToAttentionTerminal}
+        >
+          ⏳ {waiting} waiting
+        </button>
+      )}
       <span className="statusbar-age">{age}</span>
     </div>
   )

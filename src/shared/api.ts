@@ -6,6 +6,8 @@ import type {
   FileContent,
   FsEvent,
   GitCommit,
+  GitFileChange,
+  GitFileDiff,
   GitStatus,
   MergeResult,
   RepoCategory,
@@ -74,6 +76,10 @@ export interface Api {
   gitLog(sessionId: string, limit?: number): Promise<GitCommit[]>
   /** Initialize a git repo in the session's folder; returns the new git facts. */
   gitInit(sessionId: string): Promise<WorktreeInfo>
+  /** Changed files (staged, unstaged, untracked) in the session's working tree. */
+  gitChangedFiles(sessionId: string): Promise<GitFileChange[]>
+  /** Unified diff of one file's working-tree state against HEAD (path is repo-root-relative). */
+  gitFileDiff(sessionId: string, path: string): Promise<GitFileDiff>
 
   // terminals (within a session's folder)
   addTerminal(sessionId: string, kind: TerminalKind): Promise<TerminalInfo | null>
@@ -89,6 +95,14 @@ export interface Api {
    *  for this terminal is only forwarded after this resolves. */
   ptyAttach(terminalId: string): Promise<string>
   onPtyData(cb: (terminalId: string, data: string) => void): Unsubscribe
+
+  // prompt queue (follow-up prompts auto-sent to claude when the terminal sits idle)
+  /** Append a prompt to a session's queue. */
+  queueAdd(sessionId: string, text: string): Promise<void>
+  /** Delete one queued prompt. */
+  queueRemove(sessionId: string, itemId: string): Promise<void>
+  /** Move a queued prompt one slot up (-1) or down (+1). */
+  queueMove(sessionId: string, itemId: string, delta: -1 | 1): Promise<void>
 
   // repo categories (context profiles: which skills/MCP load per kind of repo)
   listCategories(): Promise<RepoCategory[]>

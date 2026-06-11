@@ -89,6 +89,12 @@ export function registerIpc(
     sessions.getGitLog(sessionId, limit)
   )
   ipcMain.handle('git:init', (_e, sessionId: string) => sessions.initRepo(sessionId))
+  ipcMain.handle('git:changedFiles', (_e, sessionId: string) =>
+    sessions.getGitChangedFiles(sessionId)
+  )
+  ipcMain.handle('git:fileDiff', (_e, sessionId: string, path: string) =>
+    sessions.getGitFileDiff(sessionId, path)
+  )
 
   // --- terminals (within a session's folder) ---
   ipcMain.handle('terminal:add', (_e, sessionId: string, kind: TerminalKind) =>
@@ -105,6 +111,17 @@ export function registerIpc(
   )
   ipcMain.handle('terminal:setActive', (_e, sessionId: string, terminalId: string) =>
     sessions.setActiveTerminal(sessionId, terminalId)
+  )
+
+  // --- prompt queue (auto-sent to claude when the terminal sits idle) ---
+  ipcMain.handle('queue:add', (_e, sessionId: string, text: string) =>
+    sessions.queueAdd(sessionId, text)
+  )
+  ipcMain.handle('queue:remove', (_e, sessionId: string, itemId: string) =>
+    sessions.queueRemove(sessionId, itemId)
+  )
+  ipcMain.handle('queue:move', (_e, sessionId: string, itemId: string, delta: -1 | 1) =>
+    sessions.queueMove(sessionId, itemId, delta)
   )
 
   // --- repo categories (context profiles) ---

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { GitCommit, GitStatus, SessionInfo } from '../../../shared/types'
+import type { GitCommit, GitFileChange, GitStatus, SessionInfo } from '../../../shared/types'
 import { useStore } from '../store'
 
 const HISTORY_LIMIT = 30
@@ -29,17 +29,41 @@ function StatusChips({ status }: { status: GitStatus }): JSX.Element {
   )
 }
 
+/** CSS modifier for a changed file's status code (colors keyed on the first letter). */
+function statusClass(status: string): string {
+  if (status.startsWith('?')) return 'untracked'
+  return status[0]?.toLowerCase() ?? 'm'
+}
+
+/** One row in the changed-files list; clicking opens the file's diff tab. */
+function ChangedFile({ file, onOpen }: { file: GitFileChange; onOpen: () => void }): JSX.Element {
+  const renamed = file.origPath ? `${file.origPath} → ` : ''
+  return (
+    <div
+      className="git-file"
+      title={`${renamed}${file.path} — click to view diff`}
+      onClick={onOpen}
+    >
+      <span className={`git-file-status s-${statusClass(file.status)}`}>{file.status}</span>
+      <span className="git-file-path">{file.path}</span>
+    </div>
+  )
+}
+
 /**
  * Sidebar Git panel: shows the active session's repo branch + working-tree
- * state and a scrollable commit history. For a non-repo folder it offers to
- * initialize one (which also unlocks parallel tasks). Reloads on session switch
- * and whenever `gitNonce` is bumped (commits, merges, init).
+ * state, the changed files (click one to review its diff in a tab) and a
+ * scrollable commit history. For a non-repo folder it offers to initialize one
+ * (which also unlocks parallel tasks). Reloads on session switch and whenever
+ * `gitNonce` is bumped (commits, merges, init).
  */
 export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
   const id = session.config.id
   const gitNonce = useStore((s) => s.gitNonce)
   const refreshGit = useStore((s) => s.refreshGit)
+  const openDiff = useStore((s) => s.openDiff)
   const [status, setStatus] = useState<GitStatus | null>(null)
+  const [files, setFiles] = useState<GitFileChange[]>([])
   const [log, setLog] = useState<GitCommit[]>([])
   const [open, setOpen] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -50,8 +74,12 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
       const st = await window.api.gitStatus(id)
       if (cancelled) return
       setStatus(st)
-      const commits = st.isRepo ? await window.api.gitLog(id, HISTORY_LIMIT) : []
-      if (!cancelled) setLog(commits)
+      const [changed, commits] = st.isRepo
+        ? await Promise.all([window.api.gitChangedFiles(id), window.api.gitLog(id, HISTORY_LIMIT)])
+        : [[], []]
+      if (cancelled) return
+      setFiles(changed)
+      setLog(commits)
     })()
     return () => {
       cancelled = true
@@ -104,6 +132,13 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
       ) : (
         <>
           <StatusChips status={status} />
+          {files.length > 0 && (
+            <div className="git-files">
+              {files.map((f) => (
+                <ChangedFile key={f.path} file={f} onOpen={() => openDiff(id, f.path)} />
+              ))}
+            </div>
+          )}
           {open && (
             <div className="git-history">
               {log.length === 0 ? (
