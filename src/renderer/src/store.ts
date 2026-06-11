@@ -3,6 +3,7 @@ import type {
   AttachmentInfo,
   FsEvent,
   RepoCategory,
+  ReusableAction,
   SessionInfo,
   SessionStatus,
   Settings,
@@ -92,6 +93,10 @@ interface AppStore {
   pendingWorktree: PendingWorktree | null
   /** Whether the category-management dialog is open. */
   categoriesOpen: boolean
+  /** Saved reusable actions (shell commands), shared across sessions. */
+  actions: ReusableAction[]
+  /** Action create/edit dialog payload; non-null while the dialog is open. */
+  actionEditor: ReusableAction | 'new' | null
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -118,6 +123,14 @@ interface AppStore {
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
   openCategories(): void
   closeCategories(): void
+  loadActions(): Promise<void>
+  /** Create or update one action (upsert by id). */
+  saveAction(action: ReusableAction): Promise<void>
+  deleteAction(actionId: string): Promise<void>
+  /** Run an action in a session and focus the terminal tab it ran in. */
+  runAction(sessionId: string, actionId: string): Promise<void>
+  openActionEditor(editor: ReusableAction | 'new'): void
+  closeActionEditor(): void
   closeSession(id: string): Promise<void>
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
@@ -158,6 +171,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   pendingNewSession: null,
   pendingWorktree: null,
   categoriesOpen: false,
+  actions: [],
+  actionEditor: null,
 
   async init() {
     const [settings, savedActive] = await Promise.all([
@@ -165,7 +180,7 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.api.getActiveSession()
     ])
     set({ settings })
-    await get().loadCategoriesAndSkills()
+    await Promise.all([get().loadCategoriesAndSkills(), get().loadActions()])
     await get().refresh()
     const { sessions } = get()
     const active =
@@ -379,6 +394,46 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeCategories() {
     set({ categoriesOpen: false })
+  },
+
+  async loadActions() {
+    set({ actions: await window.api.listActions() })
+  },
+
+  async saveAction(action) {
+    const list = get().actions
+    const next = list.some((a) => a.id === action.id)
+      ? list.map((a) => (a.id === action.id ? action : a))
+      : [...list, action]
+    await window.api.saveActions(next)
+    set({ actions: next })
+  },
+
+  async deleteAction(actionId) {
+    const next = get().actions.filter((a) => a.id !== actionId)
+    await window.api.saveActions(next)
+    set({ actions: next })
+  },
+
+  async runAction(sessionId, actionId) {
+    const result = await window.api.runAction(sessionId, actionId)
+    if (!result) return
+    if (result.respawned) {
+      // The terminal's pty was (re)started — remount xterm so it re-attaches.
+      set((st) => ({
+        epochs: { ...st.epochs, [result.terminalId]: (st.epochs[result.terminalId] ?? 0) + 1 }
+      }))
+    }
+    await get().refresh()
+    get().setActiveTab(sessionId, result.terminalId)
+  },
+
+  openActionEditor(editor) {
+    set({ actionEditor: editor })
+  },
+
+  closeActionEditor() {
+    set({ actionEditor: null })
   },
 
   async closeSession(id) {

@@ -58,6 +58,33 @@ export interface RepoCategory {
   detectFiles: string[]
 }
 
+/** Shells a reusable action can run in (any terminal kind except claude). */
+export type ActionShell = Exclude<TerminalKind, 'claude'>
+
+/**
+ * A saved shell command (e.g. "npm run build") shown in the Actions panel.
+ * Running it opens (or reuses) a terminal tab named after the action in the
+ * target session and types the command there. Stored globally — the same
+ * action can be re-triggered in any session.
+ */
+export interface ReusableAction {
+  id: string
+  /** Display name, also used as the terminal tab title, e.g. 'Build'. */
+  name: string
+  /** The command typed into the shell, submitted with Enter. */
+  command: string
+  /** Which shell runs the command. */
+  shell: ActionShell
+}
+
+/** Result of running a reusable action in a session. */
+export interface RunActionResult {
+  /** The terminal the command was typed into (focus this tab). */
+  terminalId: string
+  /** True when the terminal was (re)spawned — the renderer must remount xterm. */
+  respawned: boolean
+}
+
 export interface TerminalConfig {
   id: string
   kind: TerminalKind
@@ -68,6 +95,8 @@ export interface TerminalConfig {
   claudeArgs?: string[]
   /** claude only: how the terminal is started when restored on launch. */
   startMode?: StartMode
+  /** Set when this terminal hosts a reusable action; one tab is reused per action. */
+  actionId?: string
 }
 
 /**
@@ -253,6 +282,8 @@ export interface AppStateFile {
   settings: Settings
   /** Reusable per-category context profiles, shared across sessions. */
   categories: RepoCategory[]
+  /** Saved shell commands re-runnable from the Actions panel, shared across sessions. */
+  actions: ReusableAction[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {

@@ -5,6 +5,8 @@ import type {
   FsEvent,
   MergeResult,
   RepoCategory,
+  ReusableAction,
+  RunActionResult,
   SessionConfig,
   SessionInfo,
   SessionStatus,
@@ -83,6 +85,12 @@ export interface Api {
   listUserMcpServers(): Promise<RepoCategory['mcpServers']>
   /** Best-effort category suggestion for a freshly-picked folder. */
   detectCategory(folder: string): Promise<string | null>
+
+  // reusable actions (saved shell commands, run from the Actions panel)
+  listActions(): Promise<ReusableAction[]>
+  saveActions(actions: ReusableAction[]): Promise<void>
+  /** Run an action in a session: opens/reuses its terminal tab and types the command. */
+  runAction(sessionId: string, actionId: string): Promise<RunActionResult | null>
 
   // session events
   onSessionsChanged(cb: () => void): Unsubscribe
