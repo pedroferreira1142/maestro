@@ -36,6 +36,30 @@ body {
 .app {
   display: flex;
   height: 100%;
+  position: relative;
+  /* own stacking context so .app-bg's z-index:-1 stays inside the app */
+  isolation: isolate;
+}
+
+/* Custom background image layer — sits behind every panel and the terminal. */
+.app-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+}
+
+/*
+ * With a background image set, the surfaces painted from these variables turn
+ * translucent so the image shows through everywhere — sidebar, tabs, explorer
+ * and the terminal (xterm itself goes transparent in TerminalHost).
+ */
+.app.has-bg {
+  --bg: rgba(22, 23, 26, 0.82);
+  --panel: rgba(29, 30, 35, 0.82);
+  --panel-2: rgba(34, 35, 41, 0.82);
 }
 
 .app.loading {
@@ -1222,6 +1246,24 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.bg-preview {
+  height: 140px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bg-preview.empty span {
   color: var(--dim);
   font-size: 12px;
 }

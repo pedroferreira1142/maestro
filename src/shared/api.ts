@@ -154,6 +154,14 @@ export interface Api {
   // usage (token cost aggregated from Claude Code transcripts)
   getUsage(): Promise<UsageSnapshot>
 
+  // custom app background image
+  /** Pick an image file and store it as the app background; returns its data URL (null = cancelled). */
+  pickBackgroundImage(): Promise<string | null>
+  /** The stored background image as a data URL, or null when none is set. */
+  getBackgroundImage(): Promise<string | null>
+  /** Remove the stored background image. */
+  clearBackgroundImage(): Promise<void>
+
   // misc
   openExternal(url: string): void
   clipboardRead(): Promise<string>

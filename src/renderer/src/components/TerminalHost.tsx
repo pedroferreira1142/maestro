@@ -30,6 +30,15 @@ const TERM_THEME = {
   brightWhite: '#ffffff'
 }
 
+/**
+ * With a custom background image, xterm's own background goes fully
+ * transparent (#RRGGBBAA) so the image shows through the translucent
+ * .term-container behind it; otherwise the usual solid dark background.
+ */
+function themeFor(hasBackground: boolean): typeof TERM_THEME {
+  return hasBackground ? { ...TERM_THEME, background: '#16171a00' } : TERM_THEME
+}
+
 interface Props {
   sessionId: string
   terminal: TerminalInfo
@@ -55,6 +64,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
   const attachClipboardImage = useStore((s) => s.attachClipboardImage)
   const attachDroppedFile = useStore((s) => s.attachDroppedFile)
   const settings = useStore((s) => s.settings)
+  const hasBackground = useStore((s) => s.backgroundDataUrl !== null)
   const isClaude = terminal.config.kind === 'claude'
 
   // Paste: in claude terminals an image on the clipboard becomes an attachment
@@ -79,7 +89,8 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
       fontSize: settings?.fontSize ?? 14,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: TERM_THEME
+      allowTransparency: true,
+      theme: themeFor(useStore.getState().backgroundDataUrl !== null)
     })
     const fit = new FitAddon()
     const search = new SearchAddon()
@@ -162,6 +173,12 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  // React to the background being set/removed while the terminal is open.
+  useEffect(() => {
+    const term = termRef.current
+    if (term) term.options.theme = themeFor(hasBackground)
+  }, [hasBackground])
 
   useEffect(() => {
     if (visible) {

@@ -19,6 +19,7 @@ import {
   listAttachments,
   readAttachment
 } from './Attachments'
+import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
@@ -142,6 +143,30 @@ export function registerIpc(
     if (!win) return null
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  // --- custom app background image ---
+  ipcMain.handle('background:pick', async () => {
+    const win = getWin()
+    if (!win) return null
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const fileName = await saveBackgroundImage(result.filePaths[0])
+    if (!fileName) return null
+    persistence.state.settings.backgroundImage = fileName
+    persistence.scheduleSave()
+    return readBackgroundImage(fileName)
+  })
+  ipcMain.handle('background:get', () =>
+    readBackgroundImage(persistence.state.settings.backgroundImage)
+  )
+  ipcMain.handle('background:clear', async () => {
+    await clearBackgroundImage()
+    persistence.state.settings.backgroundImage = null
+    persistence.scheduleSave()
   })
 
   // --- terminal data plane ---

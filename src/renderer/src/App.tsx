@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { ActionDialog } from './components/ActionDialog'
+import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
@@ -33,6 +34,8 @@ export default function App(): JSX.Element {
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
   const featuresSessionId = useStore((s) => s.featuresSessionId)
+  const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
+  const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -109,7 +112,16 @@ export default function App(): JSX.Element {
   if (!settings) return <div className="app loading">Loading…</div>
 
   return (
-    <div className="app">
+    <div className={`app${backgroundDataUrl ? ' has-bg' : ''}`}>
+      {backgroundDataUrl && (
+        <div
+          className="app-bg"
+          style={{
+            backgroundImage: `url(${backgroundDataUrl})`,
+            opacity: settings.backgroundOpacity ?? 0.3
+          }}
+        />
+      )}
       <SessionSidebar />
       {explorerVisible && active && <FileExplorer key={active.config.id} session={active} />}
       <div className="main">
@@ -157,6 +169,7 @@ export default function App(): JSX.Element {
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}
       {featuresSessionId && <FeaturesDialog />}
+      {backgroundDialogOpen && <BackgroundDialog />}
     </div>
   )
 }
