@@ -1488,3 +1488,198 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------- sentinels (background watcher agents) ---------- */
+
+.sentinels {
+  border-top: 1px solid var(--border);
+  max-height: 260px;
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.sentinels-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 0 12px;
+}
+
+.sentinels-header span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.sentinels-empty {
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+.sentinel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 12px;
+  cursor: pointer;
+}
+
+.sentinel-row:hover {
+  background: var(--panel-2);
+}
+
+.sentinel-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.sentinel-glyph.idle { color: var(--dim); }
+.sentinel-glyph.off { color: var(--dim); }
+.sentinel-glyph.ok { color: var(--green); }
+.sentinel-glyph.error { color: var(--error); }
+.sentinel-glyph.running {
+  color: var(--working);
+  animation: sentinel-spin 1.2s linear infinite;
+}
+
+@keyframes sentinel-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* findings-count badge, tinted by the worst severity in the run */
+.sentinel-glyph.sev-info { background: rgba(88, 166, 255, 0.2); color: var(--working); }
+.sentinel-glyph.sev-warning { background: rgba(226, 185, 61, 0.2); color: var(--attention); }
+.sentinel-glyph.sev-critical { background: rgba(229, 72, 77, 0.2); color: var(--error); }
+
+.sentinel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentinel-trigger {
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.sentinel-row .sentinel-btn {
+  visibility: hidden;
+}
+
+.sentinel-row:hover .sentinel-btn {
+  visibility: visible;
+}
+
+.sentinel-chevron {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.sentinel-run {
+  padding: 2px 12px 6px 24px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.sentinel-run-meta {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.sentinel-summary {
+  margin-top: 2px;
+  color: var(--text);
+}
+
+.sentinel-summary.error {
+  color: var(--error);
+}
+
+.sentinel-finding {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 0 4px 4px 0;
+}
+
+.sentinel-finding.sev-info { border-left-color: var(--working); }
+.sentinel-finding.sev-warning { border-left-color: var(--attention); }
+.sentinel-finding.sev-critical { border-left-color: var(--error); }
+
+.sentinel-finding-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sentinel-finding .sev-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.sentinel-finding.sev-info .sev-dot { background: var(--working); }
+.sentinel-finding.sev-warning .sev-dot { background: var(--attention); }
+.sentinel-finding.sev-critical .sev-dot { background: var(--error); }
+
+.sentinel-finding-detail {
+  color: var(--dim);
+}
+
+.sentinel-finding-file {
+  margin-top: 2px;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sentinel-finding-file:hover {
+  text-decoration: underline;
+}
+
+/* sentinel dialog */
+.sentinel-prompt {
+  resize: vertical;
+  min-height: 90px;
+  font-family: inherit;
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.field-row .field {
+  flex: 1;
+}
+
+.checkbox-field {
+  flex: none !important;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+  margin: 6px 0;
+}

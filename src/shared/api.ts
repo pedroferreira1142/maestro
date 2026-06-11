@@ -7,6 +7,7 @@ import type {
   RepoCategory,
   ReusableAction,
   RunActionResult,
+  SentinelRun,
   SessionConfig,
   SessionInfo,
   SessionStatus,
@@ -93,6 +94,14 @@ export interface Api {
   saveActions(actions: ReusableAction[]): Promise<void>
   /** Run an action in a session: opens/reuses its terminal tab and types the command. */
   runAction(sessionId: string, actionId: string): Promise<RunActionResult | null>
+
+  // sentinels (background watcher agents; configs are saved via updateSession)
+  /** Run history for a session's sentinels, newest first (in-memory, this app run only). */
+  listSentinelRuns(sessionId: string): Promise<SentinelRun[]>
+  /** Trigger one sentinel right now, regardless of its trigger/enabled state. */
+  runSentinel(sessionId: string, sentinelId: string): Promise<void>
+  /** Fired whenever a session's sentinel run list changes (run started/finished). */
+  onSentinelRuns(cb: (sessionId: string, runs: SentinelRun[]) => void): Unsubscribe
 
   // session events
   onSessionsChanged(cb: () => void): Unsubscribe

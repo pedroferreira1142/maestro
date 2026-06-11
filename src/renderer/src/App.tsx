@@ -4,6 +4,7 @@ import { CategoriesDialog } from './components/CategoriesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
+import { SentinelDialog } from './components/SentinelDialog'
 import { WorktreeTaskDialog } from './components/WorktreeTaskDialog'
 import { SessionSidebar } from './components/SessionSidebar'
 import { StatusBar } from './components/StatusBar'
@@ -29,6 +30,7 @@ export default function App(): JSX.Element {
   const pendingWorktree = useStore((s) => s.pendingWorktree)
   const categoriesOpen = useStore((s) => s.categoriesOpen)
   const actionEditor = useStore((s) => s.actionEditor)
+  const sentinelEditor = useStore((s) => s.sentinelEditor)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -45,6 +47,7 @@ export default function App(): JSX.Element {
         fsBus.emit(id, events)
         useStore.getState().applyFsEvents(id, events)
       }),
+      window.api.onSentinelRuns((id, runs) => useStore.getState().applySentinelRuns(id, runs)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)
@@ -150,6 +153,7 @@ export default function App(): JSX.Element {
       {pendingWorktree && <WorktreeTaskDialog />}
       {categoriesOpen && <CategoriesDialog />}
       {actionEditor && <ActionDialog />}
+      {sentinelEditor && <SentinelDialog />}
     </div>
   )
 }

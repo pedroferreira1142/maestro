@@ -4,6 +4,8 @@ import type {
   FsEvent,
   RepoCategory,
   ReusableAction,
+  SentinelConfig,
+  SentinelRun,
   SessionInfo,
   SessionStatus,
   Settings,
@@ -104,6 +106,10 @@ interface AppStore {
   actions: ReusableAction[]
   /** Action create/edit dialog payload; non-null while the dialog is open. */
   actionEditor: ReusableAction | 'new' | null
+  /** Sentinel run history per session id, newest first. */
+  sentinelRuns: Record<string, SentinelRun[]>
+  /** Sentinel create/edit dialog payload; non-null while the dialog is open. */
+  sentinelEditor: { sessionId: string; sentinel: SentinelConfig | 'new' } | null
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -138,6 +144,15 @@ interface AppStore {
   runAction(sessionId: string, actionId: string): Promise<void>
   openActionEditor(editor: ReusableAction | 'new'): void
   closeActionEditor(): void
+  loadSentinelRuns(sessionId: string): Promise<void>
+  /** Replace a session's run list (pushed from main on every run start/finish). */
+  applySentinelRuns(sessionId: string, runs: SentinelRun[]): void
+  /** Create or update one sentinel on a session (upsert by id). */
+  saveSentinel(sessionId: string, sentinel: SentinelConfig): Promise<void>
+  deleteSentinel(sessionId: string, sentinelId: string): Promise<void>
+  runSentinel(sessionId: string, sentinelId: string): Promise<void>
+  openSentinelEditor(sessionId: string, sentinel: SentinelConfig | 'new'): void
+  closeSentinelEditor(): void
   closeSession(id: string): Promise<void>
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
@@ -180,6 +195,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   categoriesOpen: false,
   actions: [],
   actionEditor: null,
+  sentinelRuns: {},
+  sentinelEditor: null,
 
   async init() {
     const [settings, savedActive] = await Promise.all([
@@ -490,6 +507,46 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeActionEditor() {
     set({ actionEditor: null })
+  },
+
+  async loadSentinelRuns(sessionId) {
+    const runs = await window.api.listSentinelRuns(sessionId)
+    set((st) => ({ sentinelRuns: { ...st.sentinelRuns, [sessionId]: runs } }))
+  },
+
+  applySentinelRuns(sessionId, runs) {
+    set((st) => ({ sentinelRuns: { ...st.sentinelRuns, [sessionId]: runs } }))
+  },
+
+  async saveSentinel(sessionId, sentinel) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    if (!session) return
+    const list = session.config.sentinels ?? []
+    const sentinels = list.some((s) => s.id === sentinel.id)
+      ? list.map((s) => (s.id === sentinel.id ? sentinel : s))
+      : [...list, sentinel]
+    await window.api.updateSession(sessionId, { sentinels })
+    await get().refresh()
+  },
+
+  async deleteSentinel(sessionId, sentinelId) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    if (!session) return
+    const sentinels = (session.config.sentinels ?? []).filter((s) => s.id !== sentinelId)
+    await window.api.updateSession(sessionId, { sentinels })
+    await get().refresh()
+  },
+
+  async runSentinel(sessionId, sentinelId) {
+    await window.api.runSentinel(sessionId, sentinelId)
+  },
+
+  openSentinelEditor(sessionId, sentinel) {
+    set({ sentinelEditor: { sessionId, sentinel } })
+  },
+
+  closeSentinelEditor() {
+    set({ sentinelEditor: null })
   },
 
   async closeSession(id) {

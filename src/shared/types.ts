@@ -132,7 +132,115 @@ export interface SessionConfig {
   categoryId?: string | null
   /** Set when this session is a git-worktree parallel task; null otherwise. */
   worktree?: WorktreeMeta | null
+  /** Background watcher agents configured for this session. */
+  sentinels?: SentinelConfig[]
 }
+
+// ---------- sentinels (background watcher agents) ----------
+
+/**
+ * What starts a sentinel run: 'commit' fires when the session folder's git
+ * HEAD changes (new commits, merges, rebases); 'interval' fires on a timer.
+ */
+export type SentinelTrigger = 'commit' | 'interval'
+
+/**
+ * A background watcher attached to a session. Each run spawns a headless,
+ * read-only `claude -p` in the session's folder with `prompt` as its watch
+ * instructions and reports structured findings back to the UI.
+ */
+export interface SentinelConfig {
+  id: string
+  /** Display name, e.g. 'Convention guard'. */
+  name: string
+  /** The watch instructions given to the headless agent on every run. */
+  prompt: string
+  trigger: SentinelTrigger
+  /** interval trigger only: minutes between runs. */
+  intervalMinutes?: number
+  /** Built-in template this was created from, for display; null when custom. */
+  templateId?: string | null
+  enabled: boolean
+}
+
+export type SentinelSeverity = 'info' | 'warning' | 'critical'
+
+/** One issue reported by a sentinel run. */
+export interface SentinelFinding {
+  severity: SentinelSeverity
+  /** Short headline, e.g. 'Logger created per call'. */
+  title: string
+  /** What, why, and where — the agent's reasoning. */
+  detail: string
+  /** Repo-relative file the finding refers to, when applicable. */
+  file?: string
+}
+
+export type SentinelRunStatus = 'running' | 'ok' | 'findings' | 'error'
+
+/** One execution of a sentinel. Held in memory (not persisted across restarts). */
+export interface SentinelRun {
+  id: string
+  sentinelId: string
+  sessionId: string
+  startedAt: number
+  finishedAt: number | null
+  status: SentinelRunStatus
+  /** What fired the run, e.g. 'commits abc1234 → def5678', 'interval', 'manual'. */
+  reason: string
+  /** The agent's one-line verdict (or the error message on status 'error'). */
+  summary: string
+  findings: SentinelFinding[]
+}
+
+/** A built-in starting point for a sentinel; prefills the create dialog. */
+export interface SentinelTemplate {
+  id: string
+  name: string
+  description: string
+  trigger: SentinelTrigger
+  intervalMinutes?: number
+  prompt: string
+}
+
+export const SENTINEL_TEMPLATES: SentinelTemplate[] = [
+  {
+    id: 'tpl-convention-guard',
+    name: 'Convention guard',
+    description: 'Reviews new commits against the project’s coding conventions.',
+    trigger: 'commit',
+    prompt:
+      'Review the new commits for violations of this project’s coding conventions. ' +
+      'First read CLAUDE.md, CONTRIBUTING.md or any other convention/style docs in the repo ' +
+      'to learn the actual rules (naming, structure, error handling, logging, docs, tests). ' +
+      'Then inspect the changed code and flag concrete violations, citing the rule. ' +
+      'Also flag code that is clearly inconsistent with the style of the surrounding code. ' +
+      'No generic style opinions — only rules this project states or visibly follows.'
+  },
+  {
+    id: 'tpl-bug-watch',
+    name: 'Bug watch',
+    description: 'Reviews new commits for likely bugs and regressions.',
+    trigger: 'commit',
+    prompt:
+      'Review the new commits for likely bugs: broken edge cases, missing error handling, ' +
+      'off-by-one or inverted conditions, race conditions, leaked resources, and changes ' +
+      'that break callers elsewhere in the repo. Before flagging a changed function, check ' +
+      'its call sites. Report only genuine issues with concrete reasoning — no style nits.'
+  },
+  {
+    id: 'tpl-pr-watch',
+    name: 'Incoming PR watch',
+    description: 'Periodically checks for open PRs targeting this branch (needs the gh CLI).',
+    trigger: 'interval',
+    intervalMinutes: 15,
+    prompt:
+      'Determine the current branch, then use `gh pr list --base <branch>` to find open pull ' +
+      'requests targeting it (use `gh pr view`/`gh pr diff` for details). Summarize each open ' +
+      'PR: what it changes, risk areas, and whether it touches the same files as recent local ' +
+      'commits (possible conflicts). Report a finding per PR worth attention; all clear when none.'
+  }
+]
 
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
 export interface WorktreeInfo {

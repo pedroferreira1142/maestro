@@ -3,6 +3,7 @@ import { join } from 'path'
 import { FsService } from './FsService'
 import { registerIpc } from './ipc'
 import { Persistence } from './Persistence'
+import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
 
 let win: BrowserWindow | null = null
@@ -81,10 +82,12 @@ if (!gotLock) {
       () => persistence.state.settings.ignoreNames
     )
     const sessions = new SessionManager(persistence, fsService, getWin)
-    registerIpc(sessions, fsService, persistence, getWin)
+    const sentinels = new SentinelService(persistence, getWin)
+    registerIpc(sessions, fsService, persistence, sentinels, getWin)
 
     createWindow()
     sessions.restoreAll()
+    sentinels.start()
 
     // macOS convention: closing the window keeps the app (and its PTYs)
     // running; clicking the dock icon brings the window back.
@@ -93,6 +96,7 @@ if (!gotLock) {
     })
 
     app.on('before-quit', () => {
+      sentinels.dispose()
       sessions.disposeAll()
       persistence.saveNow()
     })
