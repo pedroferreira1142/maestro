@@ -40,6 +40,13 @@ const PTY_EXIT_WAIT_MS = 4000
 /** How long to wait for a freshly spawned shell to finish booting before typing an action's command. */
 const ACTION_SHELL_READY_MS = 1200
 
+/**
+ * Pause between typing a claude action's prompt and pressing Enter. Written in
+ * one chunk, the trailing \r is treated as part of a paste (a newline in the
+ * input box) instead of a submit.
+ */
+const CLAUDE_SUBMIT_DELAY_MS = 300
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** True while a pid is still alive (signal 0 probe). */
@@ -536,16 +543,20 @@ export class SessionManager {
   }
 
   /**
-   * Run a reusable action in a session: type its command into the action's
-   * terminal tab, creating or re-spawning that tab first when needed. Each
-   * action owns at most one tab per session (matched by `actionId`), so
-   * re-triggering reuses the same terminal instead of piling up tabs.
+   * Run a reusable action in a session. Shell actions type their command into
+   * the action's own terminal tab, creating or re-spawning that tab first when
+   * needed — each action owns at most one tab per session (matched by
+   * `actionId`), so re-triggering reuses the same terminal instead of piling
+   * up tabs. Claude actions instead send their prompt to the session's
+   * existing claude conversation.
    */
   runAction(sessionId: string, actionId: string): RunActionResult | null {
     const config = this.getConfig(sessionId)
     const action = this.state.actions.find((a) => a.id === actionId)
     const command = action?.command.trim()
     if (!config || !action || !command) return null
+
+    if (action.shell === 'claude') return this.runClaudeAction(config, command)
 
     let terminal = config.terminals.find((t) => t.actionId === action.id)
     let respawned = false
@@ -582,6 +593,56 @@ export class SessionManager {
     const terminalId = terminal.id
     const delay = respawned ? ACTION_SHELL_READY_MS : 0
     setTimeout(() => this.ptys.get(terminalId)?.write(command + '\r'), delay)
+
+    this.notifyChanged()
+    return { terminalId, respawned }
+  }
+
+  /**
+   * Run a claude action: type the prompt into the session's claude
+   * conversation and submit it. Prefers the focused claude tab, falls back to
+   * the first one, and (re)spawns claude with `continue` when none is alive —
+   * the prompt usually concerns the session's ongoing work, so it goes to the
+   * existing conversation rather than a dedicated per-action tab.
+   */
+  private runClaudeAction(config: SessionConfig, prompt: string): RunActionResult {
+    let terminal =
+      config.terminals.find((t) => t.id === config.activeTerminalId && t.kind === 'claude') ??
+      config.terminals.filter((t) => t.kind === 'claude').sort((a, b) => a.order - b.order)[0]
+    let respawned = false
+    if (!terminal) {
+      terminal = {
+        id: randomUUID(),
+        kind: 'claude',
+        title: 'claude',
+        order: Math.max(0, ...config.terminals.map((t) => t.order + 1)),
+        claudeArgs: [],
+        startMode: 'continue'
+      }
+      config.terminals.push(terminal)
+      this.applyProfile(config)
+      this.spawnTerminal(config, terminal, 'continue')
+      respawned = true
+    } else if (!this.ptys.get(terminal.id)?.alive) {
+      this.applyProfile(config)
+      this.spawnTerminal(config, terminal, 'continue')
+      respawned = true
+    }
+    config.activeTerminalId = terminal.id
+    this.persistence.scheduleSave()
+
+    // Type the prompt once claude is ready, then submit. The \r is written
+    // separately (see CLAUDE_SUBMIT_DELAY_MS) so claude reads it as Enter.
+    const terminalId = terminal.id
+    setTimeout(
+      () => {
+        const pty = this.ptys.get(terminalId)
+        if (!pty?.alive) return
+        pty.write(prompt)
+        setTimeout(() => this.ptys.get(terminalId)?.write('\r'), CLAUDE_SUBMIT_DELAY_MS)
+      },
+      respawned ? INITIAL_PROMPT_DELAY_MS : 0
+    )
 
     this.notifyChanged()
     return { terminalId, respawned }
