@@ -1,9 +1,10 @@
 import { useStore } from '../store'
 
 /**
- * Sidebar section listing the saved reusable actions (shell commands like
- * "npm run build"). Clicking a row runs it in this session — the command is
- * typed into the action's own terminal tab, which is reused on re-trigger.
+ * Sidebar section listing the saved reusable actions: shell commands like
+ * "npm run build", or claude prompts. Clicking a row runs it in this session —
+ * shell commands go to the action's own terminal tab (reused on re-trigger),
+ * claude prompts go to the session's claude conversation.
  */
 export function ActionsPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const actions = useStore((s) => s.actions)
@@ -19,7 +20,9 @@ export function ActionsPanel({ sessionId }: { sessionId: string }): JSX.Element 
         </button>
       </div>
       {actions.length === 0 ? (
-        <div className="actions-empty">Save a command (build, test…) and re-run it from here.</div>
+        <div className="actions-empty">
+          Save a claude prompt or a command (build, test…) and re-run it from here in any session.
+        </div>
       ) : (
         actions.map((a) => (
           <div
@@ -28,7 +31,7 @@ export function ActionsPanel({ sessionId }: { sessionId: string }): JSX.Element 
             title={`${a.command}  (${a.shell})`}
             onClick={() => void runAction(sessionId, a.id)}
           >
-            <span className="action-run">▶</span>
+            <span className="action-run">{a.shell === 'claude' ? '✦' : '▶'}</span>
             <span className="action-name">{a.name}</span>
             <button
               className="btn ghost action-edit"

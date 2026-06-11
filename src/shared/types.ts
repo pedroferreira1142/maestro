@@ -58,22 +58,23 @@ export interface RepoCategory {
   detectFiles: string[]
 }
 
-/** Shells a reusable action can run in (any terminal kind except claude). */
-export type ActionShell = Exclude<TerminalKind, 'claude'>
+/** Where a reusable action runs: a shell terminal, or the session's claude. */
+export type ActionShell = TerminalKind
 
 /**
- * A saved shell command (e.g. "npm run build") shown in the Actions panel.
- * Running it opens (or reuses) a terminal tab named after the action in the
- * target session and types the command there. Stored globally — the same
- * action can be re-triggered in any session.
+ * A saved shell command (e.g. "npm run build") or claude prompt shown in the
+ * Actions panel. Shell actions open (or reuse) a terminal tab named after the
+ * action and type the command there; claude actions type the prompt into the
+ * session's existing claude conversation. Stored globally — the same action
+ * can be re-triggered in any session/repo.
  */
 export interface ReusableAction {
   id: string
-  /** Display name, also used as the terminal tab title, e.g. 'Build'. */
+  /** Display name, also used as the terminal tab title (shell actions), e.g. 'Build'. */
   name: string
-  /** The command typed into the shell, submitted with Enter. */
+  /** The shell command — or, for claude actions, the prompt — submitted with Enter. */
   command: string
-  /** Which shell runs the command. */
+  /** Which shell runs the command, or 'claude' to send it as a prompt. */
   shell: ActionShell
 }
 

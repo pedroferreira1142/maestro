@@ -2,25 +2,21 @@ import { useState } from 'react'
 import type { ActionShell, ReusableAction } from '../../../shared/types'
 import { useStore } from '../store'
 
-/** Shells offered for an action, per platform (first entry is the default). */
-const SHELLS: { shell: ActionShell; label: string }[] =
-  window.api.platform === 'win32'
+/** Targets offered for an action, per platform (first entry is the default). */
+const TARGETS: { shell: ActionShell; label: string }[] = [
+  { shell: 'claude', label: 'Claude (prompt)' },
+  ...(window.api.platform === 'win32'
     ? [
-        { shell: 'powershell', label: 'PowerShell' },
-        { shell: 'cmd', label: 'cmd' },
-        { shell: 'bash', label: 'Git Bash' }
+        { shell: 'powershell', label: 'PowerShell' } as const,
+        { shell: 'cmd', label: 'cmd' } as const,
+        { shell: 'bash', label: 'Git Bash' } as const
       ]
     : window.api.platform === 'darwin'
-      ? [
-          { shell: 'zsh', label: 'zsh' },
-          { shell: 'bash', label: 'bash' }
-        ]
-      : [
-          { shell: 'bash', label: 'bash' },
-          { shell: 'zsh', label: 'zsh' }
-        ]
+      ? [{ shell: 'zsh', label: 'zsh' } as const, { shell: 'bash', label: 'bash' } as const]
+      : [{ shell: 'bash', label: 'bash' } as const, { shell: 'zsh', label: 'zsh' } as const])
+]
 
-/** Create/edit dialog for a reusable action (a saved shell command). */
+/** Create/edit dialog for a reusable action (a saved claude prompt or shell command). */
 export function ActionDialog(): JSX.Element {
   const close = useStore((s) => s.closeActionEditor)
   const saveAction = useStore((s) => s.saveAction)
@@ -31,14 +27,15 @@ export function ActionDialog(): JSX.Element {
 
   const [name, setName] = useState(existing?.name ?? '')
   const [command, setCommand] = useState(existing?.command ?? '')
-  const [shell, setShell] = useState<ActionShell>(existing?.shell ?? SHELLS[0].shell)
+  const [shell, setShell] = useState<ActionShell>(existing?.shell ?? TARGETS[0].shell)
   const [error, setError] = useState<string | null>(null)
+  const isClaude = shell === 'claude'
 
   const submit = (): void => {
     const trimmedName = name.trim()
     const trimmedCommand = command.trim()
     if (!trimmedName || !trimmedCommand) {
-      setError('A name and a command are both required.')
+      setError(`A name and a ${isClaude ? 'prompt' : 'command'} are both required.`)
       return
     }
     void saveAction({
@@ -79,9 +76,9 @@ export function ActionDialog(): JSX.Element {
         </label>
 
         <label className="field">
-          <span>Command</span>
+          <span>{isClaude ? 'Prompt' : 'Command'}</span>
           <input
-            placeholder="npm run build"
+            placeholder={isClaude ? 'Summarize the changes on this branch' : 'npm run build'}
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={onKeyDown}
@@ -89,9 +86,9 @@ export function ActionDialog(): JSX.Element {
         </label>
 
         <label className="field">
-          <span>Shell</span>
+          <span>Runs in</span>
           <select value={shell} onChange={(e) => setShell(e.target.value as ActionShell)}>
-            {SHELLS.map((s) => (
+            {TARGETS.map((s) => (
               <option key={s.shell} value={s.shell}>
                 {s.label}
               </option>
@@ -99,8 +96,9 @@ export function ActionDialog(): JSX.Element {
           </select>
         </label>
         <div className="field-hint">
-          Runs in the session&apos;s folder, in a terminal tab named after the action — the same
-          tab is reused when you re-trigger it.
+          {isClaude
+            ? 'The prompt is sent to the session’s Claude conversation and submitted — usable in any session or repo.'
+            : 'Runs in the session’s folder, in a terminal tab named after the action — the same tab is reused when you re-trigger it.'}
         </div>
 
         {error && <div className="modal-error">{error}</div>}
