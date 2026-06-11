@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProjectUsage, TokenTotals, UsageProjection, UsageSnapshot } from '../../../shared/types'
 import { useStore } from '../store'
 
 const POLL_MS = 60_000
-/** Projects shown individually in the expanded list; the rest roll up. */
+/** Projects shown individually in the popup list; the rest roll up. */
 const MAX_ROWS = 8
 
 /** Same path encoding Claude Code uses for ~/.claude/projects dir names. */
@@ -84,6 +84,28 @@ export function UsageWidget(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
   const [snap, setSnap] = useState<UsageSnapshot | null>(null)
   const [open, setOpen] = useState(false)
+  /** Viewport coords of the popup, anchored above the usage bar when it opens. */
+  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null)
+  const widgetRef = useRef<HTMLDivElement>(null)
+
+  const toggleOpen = (): void => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const rect = widgetRef.current?.getBoundingClientRect()
+    setAnchor(rect ? { left: rect.left + 6, bottom: window.innerHeight - rect.top + 6 } : null)
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
 
   useEffect(() => {
     let alive = true
@@ -136,102 +158,108 @@ export function UsageWidget(): JSX.Element {
   const restToday = rest.reduce((sum, r) => sum + r.today.costUSD, 0)
 
   return (
-    <div className="usage-widget">
+    <div className="usage-widget" ref={widgetRef}>
       {open && (
-        <div className="usage-panel">
-          <div className="usage-summary">
-            <div className="usage-stat">
-              <span className="usage-stat-value">{fmtCost(snap.today.costUSD)}</span>
-              <span className="usage-stat-label">today</span>
-            </div>
-            <div className="usage-stat">
-              <span className="usage-stat-value">{fmtCost(snap.month.costUSD)}</span>
-              <span className="usage-stat-label">this month</span>
-            </div>
-            <div className="usage-stat">
-              <span className="usage-stat-value">{fmtCost(snap.total.costUSD)}</span>
-              <span className="usage-stat-label">all time</span>
-            </div>
-          </div>
-
-          <div className="usage-tokens" title="input / output / cache write / cache read">
-            <span>in {fmtTokens(snap.total.inputTokens)}</span>
-            <span>out {fmtTokens(snap.total.outputTokens)}</span>
-            <span>cache w {fmtTokens(snap.total.cacheWriteTokens)}</span>
-            <span>cache r {fmtTokens(snap.total.cacheReadTokens)}</span>
-          </div>
-
-          {proj && runOut && (
-            <>
-              <div className="usage-section">current 5h window</div>
-              <div
-                className="usage-window"
-                title="Estimated from your transcripts: usage is grouped into 5-hour windows and the limit is your largest window so far"
-              >
-                <div>
-                  {fmtTokens(proj.blockTokens)} tokens used
-                  {proj.maxBlockTokens > 0 && (
-                    <> of ~{fmtTokens(proj.maxBlockTokens)} (largest window so far)</>
-                  )}
-                </div>
-                <div>
-                  burning {fmtTokens(Math.round(proj.tokensPerMin))} tok/min · window resets at{' '}
-                  {fmtClock(proj.blockEndAt)}
-                </div>
-                <div className={runOut.warn ? 'usage-warn' : undefined}>{runOut.text}</div>
+        <div className="usage-popup-overlay" onClick={() => setOpen(false)}>
+          <div
+            className="usage-popup"
+            style={anchor ? { left: anchor.left, bottom: anchor.bottom } : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="usage-summary">
+              <div className="usage-stat">
+                <span className="usage-stat-value">{fmtCost(snap.today.costUSD)}</span>
+                <span className="usage-stat-label">today</span>
               </div>
-            </>
-          )}
-
-          <div className="usage-section">per session</div>
-          <div className="usage-rows">
-            {shown.map((r) => (
-              <div className="usage-row" key={r.key} title={`${r.key}\n${fmtTokens(totalTokens(r.total))} tokens all time`}>
-                <span className={`usage-row-name${r.isSession ? ' live' : ''}`}>
-                  {r.isSession && <span className="usage-live-dot" />}
-                  {r.label}
-                </span>
-                <span className="usage-row-today">{r.today.costUSD > 0 ? fmtCost(r.today.costUSD) : '—'}</span>
-                <span className="usage-row-total">{fmtCost(r.total.costUSD)}</span>
-                <span className="usage-row-pct">{fmtPct(r.total.costUSD, snap.total.costUSD)}</span>
+              <div className="usage-stat">
+                <span className="usage-stat-value">{fmtCost(snap.month.costUSD)}</span>
+                <span className="usage-stat-label">this month</span>
               </div>
-            ))}
-            {rest.length > 0 && (
-              <div className="usage-row dim">
-                <span className="usage-row-name">{rest.length} more projects</span>
-                <span className="usage-row-today">{restToday > 0 ? fmtCost(restToday) : '—'}</span>
-                <span className="usage-row-total">{fmtCost(restTotal)}</span>
-                <span className="usage-row-pct">{fmtPct(restTotal, snap.total.costUSD)}</span>
+              <div className="usage-stat">
+                <span className="usage-stat-value">{fmtCost(snap.total.costUSD)}</span>
+                <span className="usage-stat-label">all time</span>
               </div>
-            )}
-            <div className="usage-row head">
-              <span className="usage-row-name" />
-              <span className="usage-row-today">today</span>
-              <span className="usage-row-total">total</span>
-              <span className="usage-row-pct">share</span>
             </div>
-          </div>
 
-          {snap.perModel.length > 0 && (
-            <>
-              <div className="usage-section">per model</div>
-              <div className="usage-rows">
-                {snap.perModel.map(({ model, totals }) => (
-                  <div className="usage-row" key={model} title={`${fmtTokens(totalTokens(totals))} tokens`}>
-                    <span className="usage-row-name">{model.replace(/^claude-/, '')}</span>
-                    <span className="usage-row-total">{fmtCost(totals.costUSD)}</span>
-                    <span className="usage-row-pct">{fmtPct(totals.costUSD, snap.total.costUSD)}</span>
+            <div className="usage-tokens" title="input / output / cache write / cache read">
+              <span>in {fmtTokens(snap.total.inputTokens)}</span>
+              <span>out {fmtTokens(snap.total.outputTokens)}</span>
+              <span>cache w {fmtTokens(snap.total.cacheWriteTokens)}</span>
+              <span>cache r {fmtTokens(snap.total.cacheReadTokens)}</span>
+            </div>
+
+            {proj && runOut && (
+              <>
+                <div className="usage-section">current 5h window</div>
+                <div
+                  className="usage-window"
+                  title="Estimated from your transcripts: usage is grouped into 5-hour windows and the limit is your largest window so far"
+                >
+                  <div>
+                    {fmtTokens(proj.blockTokens)} tokens used
+                    {proj.maxBlockTokens > 0 && (
+                      <> of ~{fmtTokens(proj.maxBlockTokens)} (largest window so far)</>
+                    )}
                   </div>
-                ))}
+                  <div>
+                    burning {fmtTokens(Math.round(proj.tokensPerMin))} tok/min · window resets at{' '}
+                    {fmtClock(proj.blockEndAt)}
+                  </div>
+                  <div className={runOut.warn ? 'usage-warn' : undefined}>{runOut.text}</div>
+                </div>
+              </>
+            )}
+
+            <div className="usage-section">per session</div>
+            <div className="usage-rows">
+              {shown.map((r) => (
+                <div className="usage-row" key={r.key} title={`${r.key}\n${fmtTokens(totalTokens(r.total))} tokens all time`}>
+                  <span className={`usage-row-name${r.isSession ? ' live' : ''}`}>
+                    {r.isSession && <span className="usage-live-dot" />}
+                    {r.label}
+                  </span>
+                  <span className="usage-row-today">{r.today.costUSD > 0 ? fmtCost(r.today.costUSD) : '—'}</span>
+                  <span className="usage-row-total">{fmtCost(r.total.costUSD)}</span>
+                  <span className="usage-row-pct">{fmtPct(r.total.costUSD, snap.total.costUSD)}</span>
+                </div>
+              ))}
+              {rest.length > 0 && (
+                <div className="usage-row dim">
+                  <span className="usage-row-name">{rest.length} more projects</span>
+                  <span className="usage-row-today">{restToday > 0 ? fmtCost(restToday) : '—'}</span>
+                  <span className="usage-row-total">{fmtCost(restTotal)}</span>
+                  <span className="usage-row-pct">{fmtPct(restTotal, snap.total.costUSD)}</span>
+                </div>
+              )}
+              <div className="usage-row head">
+                <span className="usage-row-name" />
+                <span className="usage-row-today">today</span>
+                <span className="usage-row-total">total</span>
+                <span className="usage-row-pct">share</span>
               </div>
-            </>
-          )}
+            </div>
+
+            {snap.perModel.length > 0 && (
+              <>
+                <div className="usage-section">per model</div>
+                <div className="usage-rows">
+                  {snap.perModel.map(({ model, totals }) => (
+                    <div className="usage-row" key={model} title={`${fmtTokens(totalTokens(totals))} tokens`}>
+                      <span className="usage-row-name">{model.replace(/^claude-/, '')}</span>
+                      <span className="usage-row-total">{fmtCost(totals.costUSD)}</span>
+                      <span className="usage-row-pct">{fmtPct(totals.costUSD, snap.total.costUSD)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
       <div
         className="usage-bar"
-        title="Claude API usage parsed from ~/.claude/projects — click to expand"
-        onClick={() => setOpen((o) => !o)}
+        title="Claude API usage parsed from ~/.claude/projects — click for details"
+        onClick={toggleOpen}
       >
         <span className="usage-coin">◍</span>
         <span className="usage-today">{fmtCost(snap.today.costUSD)} today</span>
