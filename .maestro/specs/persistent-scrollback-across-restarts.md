@@ -1,0 +1,14 @@
+# Persistent scrollback across restarts
+
+Persist the tail of each terminal's raw PTY output to disk and replay it on restore, so restarted sessions show their prior terminal history instead of starting blank. PtySession (src/main/PtySession.ts) already ring-buffers every output chunk in memory (`chunks`, 2 MB cap) and replays it to the renderer via attach(); the renderer's TerminalHost already writes that replay into xterm, so no renderer changes are needed. Add a small scrollback store in main (new module, e.g. src/main/ScrollbackStore.ts) that debounce-writes the last ~200 KB of each terminal's ring buffer to <userData>/scrollback/<terminalId>.txt (atomic tmp+rename, mirroring Persistence.ts). SessionManager (src/main/SessionManager.ts) wires it in: spawnTerminal hooks output for persistence; restoreAll loads each terminal's saved file and seeds the PtySession ring buffer (with a visual divider) before spawning, so attach() replays history followed by the live `claude --continue` output; close/closeTerminal/removeWorktree delete the terminal's file; disposeAll/app-quit flushes pending writes. Update the README's 'Terminal scrollback is not persisted across app restarts' note.
+
+## Specs
+
+- [x] After quitting and relaunching the app, each restored terminal shows the previous run's terminal output (up to the persisted cap) above the new output of the resumed `claude --continue` conversation, instead of starting blank.
+- [x] A clearly visible divider line (e.g. a dim '── restored from previous session ──' row) separates the replayed history from output produced by the newly spawned process.
+- [x] Persisted scrollback per terminal is capped at roughly 200 KB of the most recent output; older output is dropped oldest-first, and a long-running terminal never grows its scrollback file beyond the cap.
+- [x] Disk writes are debounced: a terminal producing continuous output causes at most about one scrollback file write per second, and pending unwritten output is flushed when the app quits, so history written moments before quit survives the restart.
+- [x] Scrollback files are stored under the app's user-data directory (e.g. <userData>/scrollback/<terminalId>.txt), never inside the session's repo folder, and sessions.json's existing shape is unchanged.
+- [x] Closing a session, closing an individual terminal tab, or removing a worktree task deletes the corresponding scrollback file(s); no orphaned scrollback files remain for terminals that no longer exist.
+- [x] Text that only appeared in the previous run is findable after restart via both the in-terminal search (Ctrl+F) and the global scrollback search (Ctrl+Shift+F), because the replayed history lands in the xterm buffer.
+- [x] A missing, truncated, or unreadable scrollback file never prevents a session from restoring: the terminal simply starts without replayed history and the app shows no error.

@@ -95,9 +95,10 @@ heuristics.
 ## State
 
 Session list, window bounds, and settings persist in `sessions.json` under the app's user-data
-dir (`%APPDATA%\maestro` on Windows, `~/Library/Application Support/maestro` on macOS). Terminal
-scrollback is not persisted across app restarts — Claude's own `--continue` restores the
-conversation.
+dir (`%APPDATA%\maestro` on Windows, `~/Library/Application Support/maestro` on macOS). The tail
+of each terminal's output (~200 KB) is persisted under `scrollback/` in the same dir and replayed
+on restart above a dim `── restored from previous session ──` divider, while Claude's own
+`--continue` restores the conversation itself.
 
 ## Architecture (short)
 
