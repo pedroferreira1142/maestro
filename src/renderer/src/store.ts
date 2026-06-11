@@ -16,6 +16,14 @@ import type {
   TerminalKind
 } from '../../shared/types'
 
+/** One terminal waiting for user input, queued when it entered 'needs-attention'. */
+export interface AttentionEntry {
+  sessionId: string
+  terminalId: string
+  /** When the terminal entered 'needs-attention' (as observed by the renderer). */
+  since: number
+}
+
 /** Pending state for the new-session dialog (set after a folder is picked). */
 export interface PendingNewSession {
   folder: string
@@ -95,6 +103,33 @@ export function diffTabPath(tab: string): string {
   return tab.slice(DIFF_TAB_PREFIX.length)
 }
 
+/**
+ * Reconcile the attention queue against a fresh session list: drop entries
+ * whose terminal is gone or no longer 'needs-attention', and append terminals
+ * that are 'needs-attention' but missing from the queue (their transition was
+ * never observed — e.g. at startup, where listSessions seeds the statuses).
+ * Existing entries keep their position, so wait order survives refreshes.
+ */
+function reconcileAttentionQueue(
+  queue: AttentionEntry[],
+  sessions: SessionInfo[]
+): AttentionEntry[] {
+  const waiting = new Map<string, string>() // terminalId -> sessionId
+  for (const s of sessions) {
+    for (const t of s.terminals) {
+      if (t.status === 'needs-attention') waiting.set(t.config.id, s.config.id)
+    }
+  }
+  const next = queue.filter((e) => waiting.get(e.terminalId) === e.sessionId)
+  const now = Date.now()
+  for (const [terminalId, sessionId] of waiting) {
+    if (!next.some((e) => e.terminalId === terminalId)) {
+      next.push({ sessionId, terminalId, since: now })
+    }
+  }
+  return next
+}
+
 export interface ViewerState {
   /** Open file tabs (relPaths) and diff tabs ('diff:' + repo-relative path). */
   tabs: string[]
@@ -144,6 +179,8 @@ interface AppStore {
   backgroundDataUrl: string | null
   /** Whether the background-image dialog is open. */
   backgroundDialogOpen: boolean
+  /** Terminals waiting for user input, oldest-waiting first. */
+  attentionQueue: AttentionEntry[]
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -267,6 +304,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   features: [],
   backgroundDataUrl: null,
   backgroundDialogOpen: false,
+  attentionQueue: [],
 
   async init() {
     const [settings, savedActive, backgroundDataUrl] = await Promise.all([
@@ -307,7 +345,8 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({
       sessions,
       viewers: nextViewers,
-      activeId: stillActive ? activeId : (sessions[0]?.config.id ?? null)
+      activeId: stillActive ? activeId : (sessions[0]?.config.id ?? null),
+      attentionQueue: reconcileAttentionQueue(get().attentionQueue, sessions)
     })
   },
 
@@ -804,8 +843,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   applyStatus(terminalId, status) {
-    set((st) => ({
-      sessions: st.sessions.map((s) => {
+    set((st) => {
+      const sessions = st.sessions.map((s) => {
         if (!s.terminals.some((t) => t.config.id === terminalId)) return s
         const terminals = s.terminals.map((t) =>
           t.config.id === terminalId ? { ...t, status, lastOutputAt: Date.now() } : t
@@ -813,7 +852,23 @@ export const useStore = create<AppStore>()((set, get) => ({
         const next = { ...s, terminals }
         return { ...next, status: aggregate(next) }
       })
-    }))
+      // Keep the attention queue in sync with the transition: enqueue when a
+      // terminal enters 'needs-attention', dequeue the moment it leaves.
+      let attentionQueue = st.attentionQueue
+      const queued = attentionQueue.some((e) => e.terminalId === terminalId)
+      if (status === 'needs-attention' && !queued) {
+        const owner = sessions.find((s) => s.terminals.some((t) => t.config.id === terminalId))
+        if (owner) {
+          attentionQueue = [
+            ...attentionQueue,
+            { sessionId: owner.config.id, terminalId, since: Date.now() }
+          ]
+        }
+      } else if (status !== 'needs-attention' && queued) {
+        attentionQueue = attentionQueue.filter((e) => e.terminalId !== terminalId)
+      }
+      return { sessions, attentionQueue }
+    })
   },
 
   async loadAttachments(sessionId) {

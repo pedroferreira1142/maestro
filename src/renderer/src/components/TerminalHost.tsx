@@ -133,6 +133,8 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
       }
       // App-level shortcuts: skip xterm handling, let them bubble to the window listener.
       if (ctrl && (ev.key === 'Tab' || /^[1-9]$/.test(ev.key))) return false
+      if ((ctrl || ev.metaKey) && !shift && (ev.key === '`' || ev.code === 'Backquote'))
+        return false
       if (ctrl && shift && ['n', 'w', 'e'].includes(key)) return false
       if (ctrl && !shift && key === 'b') return false
       return true

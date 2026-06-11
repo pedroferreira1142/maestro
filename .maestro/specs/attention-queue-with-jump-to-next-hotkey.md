@@ -1,0 +1,14 @@
+# Attention queue with jump-to-next hotkey
+
+Maintain an ordered queue of terminals whose status is 'needs-attention', oldest-waiting first, and let the user jump through them with a global hotkey. The renderer already learns of every per-terminal status change through window.api.onStatusChange → applyStatus in src/renderer/src/store.ts, so the queue lives in the zustand store: record a timestamp when a terminal transitions into 'needs-attention' and drop the entry when it transitions out (user input clears it main-side via StatusDetector.onUserInput, so leaving happens automatically). Render a numbered badge in src/renderer/src/components/StatusBar.tsx showing the queue size. Register Ctrl+` (Cmd+` on macOS) in the existing window keydown handler in src/renderer/src/App.tsx, following the same ctrl/meta pattern as Ctrl+Tab; jumping uses the existing setActive + setActiveTab store actions plus focusActiveTerminal from src/renderer/src/termRegistry.ts. Note the queue must also be seeded/reconciled on refresh(), since listSessions returns current statuses for terminals whose transition the renderer may have missed (e.g. at startup). Only claude terminals ever reach 'needs-attention' (StatusDetector's plain flag disables it for shells), so no filtering is needed beyond status.
+
+## Specs
+
+- [ ] When a terminal's status becomes 'needs-attention', it is added to an attention queue ordered by when it entered that state (oldest first); the queue holds (sessionId, terminalId) entries and survives switching between sessions.
+- [ ] The status bar shows a badge with the number of queued terminals (e.g. '⏳ 3 waiting'); the badge is not rendered when the queue is empty.
+- [ ] Pressing Ctrl+` (Cmd+` on macOS) activates the session of the longest-waiting entry, selects that terminal's tab, and moves keyboard focus into that terminal, ready for typing — and this works even while another terminal currently has keyboard focus.
+- [ ] Pressing the hotkey when the longest-waiting terminal is already the focused one advances to the next entry in wait order, wrapping around to the oldest after the newest.
+- [ ] An entry leaves the queue as soon as its terminal's status is no longer 'needs-attention' (user typed into it, terminal exited or errored, or it was restarted), and the badge count updates immediately without requiring a session switch.
+- [ ] Closing a session or closing a terminal removes its queue entries; the queue never references a session or terminal that no longer exists (jumping after such a removal targets the next valid entry).
+- [ ] Clicking the status-bar badge performs the same jump as the hotkey.
+- [ ] After an app restart, terminals that are already in 'needs-attention' when the renderer first loads the session list appear in the queue (seeded from the statuses returned by listSessions), even though the renderer never observed their transition.
