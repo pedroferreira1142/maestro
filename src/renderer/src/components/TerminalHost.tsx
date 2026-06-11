@@ -99,7 +99,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
     term.loadAddon(new WebLinksAddon((_e, uri) => window.api.openExternal(uri)))
     term.open(containerRef.current!)
     termRef.current = term
-    registerTerm(id, term)
+    registerTerm(id, term, search)
     fitRef.current = fit
     searchRef.current = search
 
@@ -135,7 +135,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
       if (ctrl && (ev.key === 'Tab' || /^[1-9]$/.test(ev.key))) return false
       if ((ctrl || ev.metaKey) && !shift && (ev.key === '`' || ev.code === 'Backquote'))
         return false
-      if (ctrl && shift && ['n', 'w', 'e'].includes(key)) return false
+      if (ctrl && shift && ['n', 'w', 'e', 'f'].includes(key)) return false
       if (ctrl && !shift && key === 'b') return false
       return true
     })
