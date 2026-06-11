@@ -2188,3 +2188,98 @@ body {
 .btn.ghost.danger {
   color: var(--error);
 }
+
+/* ---------- auto-expand (self-expanding features) ---------- */
+
+.autoexpand-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.autoexpand-run {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.autoexpand-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.autoexpand-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--border);
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.autoexpand-status.run-running {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.autoexpand-status.run-done {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+.autoexpand-status.run-error {
+  background: rgba(229, 72, 77, 0.18);
+  color: var(--error);
+}
+
+.autoexpand-run-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.autoexpand-run-meta {
+  color: var(--dim);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.autoexpand-run-body {
+  padding: 0 10px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-top: 1px solid var(--border);
+}
+
+.autoexpand-verdict {
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.autoexpand-verdict.error {
+  color: var(--error);
+}
+
+.autoexpand-ideas {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--dim);
+}
+
+.autoexpand-ideas li {
+  margin-top: 3px;
+}
+
+.autoexpand-ideas li.chosen {
+  color: var(--text);
+}

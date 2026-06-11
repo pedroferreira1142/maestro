@@ -19,6 +19,7 @@ import {
   listAttachments,
   readAttachment
 } from './Attachments'
+import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FeatureService } from './FeatureService'
@@ -43,6 +44,7 @@ export function registerIpc(
   persistence: Persistence,
   sentinels: SentinelService,
   features: FeatureService,
+  autoExpand: AutoExpandService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -130,6 +132,10 @@ export function registerIpc(
   ipcMain.handle('feature:save', (_e, feature: Feature) => features.save(feature))
   ipcMain.handle('feature:delete', (_e, id: string) => features.delete(id))
   ipcMain.handle('feature:implement', (_e, id: string) => features.implement(id))
+
+  // --- auto-expand (self-expanding features pipeline) ---
+  ipcMain.handle('autoexpand:runs', (_e, sessionId: string) => autoExpand.listRuns(sessionId))
+  ipcMain.handle('autoexpand:run', (_e, sessionId: string) => autoExpand.runNow(sessionId))
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)

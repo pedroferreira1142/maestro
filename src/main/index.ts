@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+import { AutoExpandService } from './AutoExpand'
 import { FeatureService } from './FeatureService'
 import { FsService } from './FsService'
 import { registerIpc } from './ipc'
@@ -85,11 +86,13 @@ if (!gotLock) {
     const sessions = new SessionManager(persistence, fsService, getWin)
     const sentinels = new SentinelService(persistence, getWin)
     const features = new FeatureService(persistence, sessions)
-    registerIpc(sessions, fsService, persistence, sentinels, features, getWin)
+    const autoExpand = new AutoExpandService(persistence, features, getWin)
+    registerIpc(sessions, fsService, persistence, sentinels, features, autoExpand, getWin)
 
     createWindow()
     sessions.restoreAll()
     sentinels.start()
+    autoExpand.start()
 
     // macOS convention: closing the window keeps the app (and its PTYs)
     // running; clicking the dock icon brings the window back.
@@ -98,6 +101,7 @@ if (!gotLock) {
     })
 
     app.on('before-quit', () => {
+      autoExpand.dispose()
       sentinels.dispose()
       sessions.disposeAll()
       persistence.saveNow()

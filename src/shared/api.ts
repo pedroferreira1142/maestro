@@ -1,5 +1,6 @@
 import type {
   AttachmentInfo,
+  AutoExpandRun,
   DirEntry,
   Feature,
   FileContent,
@@ -114,6 +115,14 @@ export interface Api {
   deleteFeature(id: string): Promise<void>
   /** Spin off a worktree task session to implement a feature's specs. Throws on git failure. */
   implementFeature(id: string): Promise<SessionInfo>
+
+  // auto-expand (self-expanding features; config is saved via updateSession)
+  /** Run history for a session's auto-expand pipeline, newest first (in-memory). */
+  listAutoExpandRuns(sessionId: string): Promise<AutoExpandRun[]>
+  /** Trigger one pipeline run right now, regardless of the enabled state/timer. */
+  runAutoExpand(sessionId: string): Promise<void>
+  /** Fired whenever a session's auto-expand run list changes (phase/status updates). */
+  onAutoExpandRuns(cb: (sessionId: string, runs: AutoExpandRun[]) => void): Unsubscribe
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

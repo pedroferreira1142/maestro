@@ -349,6 +349,17 @@ export async function commitAll(folder: string, message: string): Promise<GitRes
   return git(folder, ['commit', '-m', message])
 }
 
+/**
+ * Create a local branch at `from` (default HEAD) WITHOUT checking it out, so
+ * the user's working tree is untouched. No-op when the branch already exists.
+ * Throws with git's message on failure (e.g. invalid name, unborn HEAD).
+ */
+export async function ensureBranch(repoRoot: string, branch: string, from = 'HEAD'): Promise<void> {
+  if (await branchExists(repoRoot, branch)) return
+  const res = await git(repoRoot, ['branch', branch, from])
+  if (res.code !== 0) throw new Error(res.output || `git branch ${branch} failed`)
+}
+
 /** True if a local branch with this name exists. */
 export async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
   const res = await git(repoRoot, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])

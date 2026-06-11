@@ -145,6 +145,7 @@ export function SessionSidebar(): JSX.Element {
   const newSession = useStore((s) => s.newSession)
   const openCategories = useStore((s) => s.openCategories)
   const openFeatures = useStore((s) => s.openFeatures)
+  const openAutoExpand = useStore((s) => s.openAutoExpand)
   const openBackgroundDialog = useStore((s) => s.openBackgroundDialog)
   const ordered = orderedSessions(sessions)
 
@@ -160,6 +161,14 @@ export function SessionSidebar(): JSX.Element {
             onClick={() => activeId && void openFeatures(activeId)}
           >
             ✦
+          </button>
+          <button
+            className="btn ghost"
+            title="Auto-expand features for the active session"
+            disabled={!activeId}
+            onClick={() => activeId && void openAutoExpand(activeId)}
+          >
+            ⚡
           </button>
           <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
             ◫
