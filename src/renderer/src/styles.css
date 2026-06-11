@@ -1831,3 +1831,167 @@ body {
   height: 16px;
   margin: 6px 0;
 }
+
+/* ---- features & specs dialog ---- */
+.new-feature-btn {
+  align-self: flex-start;
+}
+
+.new-feature-row {
+  display: flex;
+  gap: 8px;
+}
+
+.new-feature-row input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.new-feature-row input:focus {
+  border-color: var(--accent);
+}
+
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feature-empty {
+  color: var(--dim);
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+.feature-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--dim);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feature-card.status-implementing {
+  border-left-color: var(--working);
+}
+
+.feature-card.status-merged {
+  border-left-color: var(--green);
+}
+
+.feature-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-title {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.feature-title:focus {
+  border-color: var(--accent);
+}
+
+.feature-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: var(--dim);
+  background: var(--bg);
+  white-space: nowrap;
+}
+
+.feature-status.status-implementing {
+  color: var(--working);
+}
+
+.feature-status.status-merged {
+  color: var(--green);
+}
+
+.feature-desc {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.feature-desc:focus {
+  border-color: var(--accent);
+}
+
+.spec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spec-row input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.spec-text {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.spec-text:focus {
+  border-color: var(--accent);
+}
+
+.spec-add {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.feature-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.btn.ghost.danger {
+  color: var(--error);
+}

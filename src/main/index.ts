@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+import { FeatureService } from './FeatureService'
 import { FsService } from './FsService'
 import { registerIpc } from './ipc'
 import { Persistence } from './Persistence'
@@ -83,7 +84,8 @@ if (!gotLock) {
     )
     const sessions = new SessionManager(persistence, fsService, getWin)
     const sentinels = new SentinelService(persistence, getWin)
-    registerIpc(sessions, fsService, persistence, sentinels, getWin)
+    const features = new FeatureService(persistence, sessions)
+    registerIpc(sessions, fsService, persistence, sentinels, features, getWin)
 
     createWindow()
     sessions.restoreAll()

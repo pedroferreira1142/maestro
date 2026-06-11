@@ -1,6 +1,7 @@
 import type {
   AttachmentInfo,
   DirEntry,
+  Feature,
   FileContent,
   FsEvent,
   GitCommit,
@@ -104,6 +105,15 @@ export interface Api {
   saveActions(actions: ReusableAction[]): Promise<void>
   /** Run an action in a session: opens/reuses its terminal tab and types the command. */
   runAction(sessionId: string, actionId: string): Promise<RunActionResult | null>
+
+  // features & specs (per-session feature plans, implemented via worktree tasks)
+  /** Features for one session, oldest first. */
+  listFeatures(sessionId: string): Promise<Feature[]>
+  /** Create or update one feature (upsert by id). */
+  saveFeature(feature: Feature): Promise<void>
+  deleteFeature(id: string): Promise<void>
+  /** Spin off a worktree task session to implement a feature's specs. Throws on git failure. */
+  implementFeature(id: string): Promise<SessionInfo>
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

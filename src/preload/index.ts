@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
+  Feature,
   FsEvent,
   RepoCategory,
   ReusableAction,
@@ -66,6 +67,11 @@ const api: Api = {
   runSentinel: (sessionId, sentinelId) => ipcRenderer.invoke('sentinel:run', sessionId, sentinelId),
   onSentinelRuns: (cb) =>
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
+
+  listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
+  saveFeature: (feature: Feature) => ipcRenderer.invoke('feature:save', feature),
+  deleteFeature: (id) => ipcRenderer.invoke('feature:delete', id),
+  implementFeature: (id) => ipcRenderer.invoke('feature:implement', id),
 
   listActions: () => ipcRenderer.invoke('actions:list'),
   saveActions: (actions: ReusableAction[]) => ipcRenderer.invoke('actions:save', actions),

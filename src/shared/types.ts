@@ -282,6 +282,45 @@ export interface GitStatus {
   remoteUrl: string | null
 }
 
+// ---------- features & specs ----------
+
+/** One requirement line within a feature. `done` is a manual authoring checkbox. */
+export interface Spec {
+  id: string
+  /** The requirement text, e.g. 'Toggle persists across restarts'. */
+  text: string
+  /** User-toggled "this spec is satisfied" marker; purely for tracking. */
+  done: boolean
+}
+
+/**
+ * 'draft'        — being authored, no task spun off yet.
+ * 'implementing' — a worktree task session has been created to build it.
+ * 'merged'       — the user marked the work done (task merged/closed).
+ */
+export type FeatureStatus = 'draft' | 'implementing' | 'merged'
+
+/**
+ * A planned unit of work attached to one session's repo: a title, a description
+ * and a list of specs. When implemented, Maestro spins off a git-worktree task
+ * (a sub-session) whose claude is prompted to build the specs from an on-disk
+ * spec file written into the worktree.
+ */
+export interface Feature {
+  id: string
+  /** The session (repo) this feature belongs to. */
+  sessionId: string
+  /** Short title, e.g. 'Dark mode toggle'. */
+  title: string
+  /** Free-form description of the feature's intent. */
+  description: string
+  specs: Spec[]
+  status: FeatureStatus
+  /** The worktree task session spawned to implement it; null until implemented. */
+  taskSessionId?: string | null
+  createdAt: number
+}
+
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
 export interface WorktreeInfo {
   /** Whether the folder is inside a git work tree. */
@@ -467,6 +506,8 @@ export interface AppStateFile {
   categories: RepoCategory[]
   /** Saved shell commands re-runnable from the Actions panel, shared across sessions. */
   actions: ReusableAction[]
+  /** Features (with their specs) authored across all sessions. */
+  features: Feature[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {

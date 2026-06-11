@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   AttachmentInfo,
+  Feature,
   FsEvent,
   RepoCategory,
   ReusableAction,
@@ -112,6 +113,10 @@ interface AppStore {
   sentinelEditor: { sessionId: string; sentinel: SentinelConfig | 'new' } | null
   /** Bumped to make the Git panel reload (after commits/merges/init). */
   gitNonce: number
+  /** The session whose Features & Specs dialog is open; null when closed. */
+  featuresSessionId: string | null
+  /** Features for the session whose dialog is open, oldest first. */
+  features: Feature[]
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -157,6 +162,14 @@ interface AppStore {
   runSentinel(sessionId: string, sentinelId: string): Promise<void>
   openSentinelEditor(sessionId: string, sentinel: SentinelConfig | 'new'): void
   closeSentinelEditor(): void
+  openFeatures(sessionId: string): Promise<void>
+  closeFeatures(): void
+  loadFeatures(sessionId: string): Promise<void>
+  /** Create or update one feature (upsert by id), then reload the list. */
+  saveFeature(feature: Feature): Promise<void>
+  deleteFeature(id: string): Promise<void>
+  /** Spin off a worktree task to implement a feature; focuses the new session. */
+  implementFeature(id: string): Promise<void>
   closeSession(id: string): Promise<void>
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
@@ -202,6 +215,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   sentinelRuns: {},
   sentinelEditor: null,
   gitNonce: 0,
+  featuresSessionId: null,
+  features: [],
 
   async init() {
     const [settings, savedActive] = await Promise.all([
@@ -578,6 +593,45 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeSentinelEditor() {
     set({ sentinelEditor: null })
+  },
+
+  async openFeatures(sessionId) {
+    set({ featuresSessionId: sessionId, features: [] })
+    await get().loadFeatures(sessionId)
+  },
+
+  closeFeatures() {
+    set({ featuresSessionId: null, features: [] })
+  },
+
+  async loadFeatures(sessionId) {
+    const features = await window.api.listFeatures(sessionId)
+    // Ignore a late response if the dialog was closed or switched in the meantime.
+    if (get().featuresSessionId === sessionId) set({ features })
+  },
+
+  async saveFeature(feature) {
+    await window.api.saveFeature(feature)
+    await get().loadFeatures(feature.sessionId)
+  },
+
+  async deleteFeature(id) {
+    const sessionId = get().featuresSessionId
+    await window.api.deleteFeature(id)
+    if (sessionId) await get().loadFeatures(sessionId)
+  },
+
+  async implementFeature(id) {
+    try {
+      const info = await window.api.implementFeature(id)
+      set({ featuresSessionId: null, features: [] })
+      await get().refresh()
+      get().setActive(info.config.id)
+    } catch (err) {
+      window.alert(`Couldn't start implementing the feature:\n\n${(err as Error).message}`)
+      const sessionId = get().featuresSessionId
+      if (sessionId) await get().loadFeatures(sessionId)
+    }
   },
 
   async closeSession(id) {
