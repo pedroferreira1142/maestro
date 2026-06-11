@@ -78,10 +78,27 @@ function aggregate(session: SessionInfo): SessionStatus {
   return STATUS_PRIORITY.find((s) => present.has(s)) ?? 'idle'
 }
 
+/**
+ * Tab-id encoding for git diff tabs. Plain file tabs are bare relPaths, so
+ * diff tabs carry this prefix to stay distinguishable in the same `tabs` list
+ * ('diff:' is never a valid path start — paths from main are normalized).
+ */
+export const DIFF_TAB_PREFIX = 'diff:'
+
+/** True when a viewer tab id refers to a git diff tab. */
+export function isDiffTab(tab: string): boolean {
+  return tab.startsWith(DIFF_TAB_PREFIX)
+}
+
+/** The repo-root-relative path encoded in a diff tab id. */
+export function diffTabPath(tab: string): string {
+  return tab.slice(DIFF_TAB_PREFIX.length)
+}
+
 export interface ViewerState {
-  /** Open file tabs (relPaths). Terminals come from the session config. */
+  /** Open file tabs (relPaths) and diff tabs ('diff:' + repo-relative path). */
   tabs: string[]
-  /** A terminal id or a relPath from `tabs`. */
+  /** A terminal id or an entry from `tabs`. */
   active: string
 }
 
@@ -195,6 +212,8 @@ interface AppStore {
   restartTerminal(terminalId: string, mode: 'fresh' | 'resume'): Promise<void>
   renameTerminal(terminalId: string, title: string): Promise<void>
   openFile(sessionId: string, relPath: string): void
+  /** Open (or focus) the git diff tab for a changed file (repo-root-relative path). */
+  openDiff(sessionId: string, relPath: string): void
   closeTab(sessionId: string, relPath: string): void
   setActiveTab(sessionId: string, tab: string): void
   toggleExplorer(): void
@@ -730,6 +749,16 @@ export const useStore = create<AppStore>()((set, get) => ({
       const v = st.viewers[sessionId] ?? { tabs: [], active: s ? defaultActive(s) : 'terminal' }
       const tabs = v.tabs.includes(relPath) ? v.tabs : [...v.tabs, relPath]
       return { viewers: { ...st.viewers, [sessionId]: { tabs, active: relPath } } }
+    })
+  },
+
+  openDiff(sessionId, relPath) {
+    const tab = DIFF_TAB_PREFIX + relPath
+    set((st) => {
+      const s = st.sessions.find((x) => x.config.id === sessionId)
+      const v = st.viewers[sessionId] ?? { tabs: [], active: s ? defaultActive(s) : 'terminal' }
+      const tabs = v.tabs.includes(tab) ? v.tabs : [...v.tabs, tab]
+      return { viewers: { ...st.viewers, [sessionId]: { tabs, active: tab } } }
     })
   },
 

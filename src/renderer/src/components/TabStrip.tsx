@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, SessionStatus, TerminalInfo, TerminalKind } from '../../../shared/types'
-import { useStore } from '../store'
+import { diffTabPath, isDiffTab, useStore } from '../store'
 
 const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
@@ -177,25 +177,30 @@ export function TabStrip({ session }: { session: SessionInfo }): JSX.Element {
         />
       ))}
       <AddTerminalMenu sessionId={id} />
-      {(viewer?.tabs ?? []).map((relPath) => (
-        <div
-          key={relPath}
-          className={`tab${active === relPath ? ' active' : ''}`}
-          title={relPath}
-          onClick={() => setActiveTab(id, relPath)}
-        >
-          <span className="tab-name">{relPath.split('/').pop()}</span>
-          <button
-            className="btn ghost close"
-            onClick={(e) => {
-              e.stopPropagation()
-              closeTab(id, relPath)
-            }}
+      {(viewer?.tabs ?? []).map((tab) => {
+        const diff = isDiffTab(tab)
+        const relPath = diff ? diffTabPath(tab) : tab
+        return (
+          <div
+            key={tab}
+            className={`tab${diff ? ' diff-tab' : ''}${active === tab ? ' active' : ''}`}
+            title={diff ? `Diff (working tree vs HEAD) · ${relPath}` : relPath}
+            onClick={() => setActiveTab(id, tab)}
           >
-            ✕
-          </button>
-        </div>
-      ))}
+            {diff && <span className="tab-diff-badge">±</span>}
+            <span className="tab-name">{relPath.split('/').pop()}</span>
+            <button
+              className="btn ghost close"
+              onClick={(e) => {
+                e.stopPropagation()
+                closeTab(id, tab)
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }

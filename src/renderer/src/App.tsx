@@ -3,6 +3,7 @@ import { ActionDialog } from './components/ActionDialog'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
+import { DiffViewer } from './components/DiffViewer'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { FileViewer } from './components/FileViewer'
@@ -14,7 +15,7 @@ import { StatusBar } from './components/StatusBar'
 import { TabStrip } from './components/TabStrip'
 import { TerminalHost } from './components/TerminalHost'
 import { fsBus } from './fsBus'
-import { useStore } from './store'
+import { diffTabPath, isDiffTab, useStore } from './store'
 import { focusActiveTerminal } from './termRegistry'
 import type { SessionInfo } from '../../shared/types'
 
@@ -155,11 +156,19 @@ export default function App(): JSX.Element {
                 ))
               })}
               {active && !activeTabIsTerminal && (
-                <FileViewer
-                  key={`${active.config.id}:${activeTab}`}
-                  sessionId={active.config.id}
-                  relPath={activeTab}
-                />
+                isDiffTab(activeTab) ? (
+                  <DiffViewer
+                    key={`${active.config.id}:${activeTab}`}
+                    sessionId={active.config.id}
+                    relPath={diffTabPath(activeTab)}
+                  />
+                ) : (
+                  <FileViewer
+                    key={`${active.config.id}:${activeTab}`}
+                    sessionId={active.config.id}
+                    relPath={activeTab}
+                  />
+                )
               )}
             </div>
             {active && <StatusBar session={active} />}
