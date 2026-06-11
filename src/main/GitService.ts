@@ -207,6 +207,28 @@ export async function startMergeLeaveConflicts(
   return { ok: false, conflict: merging.code === 0, output: res.output }
 }
 
+/**
+ * Push `branch` to its upstream remote, best-effort. Only pushes when the
+ * branch already has an upstream — Maestro never publishes branches the user
+ * hasn't pushed themselves. Returns null when there is no upstream to push to.
+ */
+export async function pushBranch(
+  folder: string,
+  branch: string
+): Promise<{ ok: boolean; output: string } | null> {
+  const up = await git(folder, [
+    'rev-parse',
+    '--abbrev-ref',
+    '--symbolic-full-name',
+    `${branch}@{upstream}`
+  ])
+  if (up.code !== 0) return null
+  const remote = up.stdout.trim().split('/')[0]
+  if (!remote) return null
+  const res = await git(folder, ['push', remote, branch])
+  return { ok: res.code === 0, output: res.output }
+}
+
 /** Number of dirty (changed/untracked) files in a working tree; null if not a repo. */
 export async function dirtyCount(folder: string): Promise<number | null> {
   try {

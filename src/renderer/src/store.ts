@@ -26,6 +26,13 @@ export interface PendingWorktree {
   baseBranch: string
 }
 
+/** Human suffix for a merge alert describing the post-merge push outcome. */
+function pushNote(pushed: boolean | undefined): string {
+  if (pushed === true) return ' and pushed to the remote'
+  if (pushed === false) return ' (push to remote FAILED — see next message)'
+  return '' // no upstream: purely local repo, nothing to mention
+}
+
 /**
  * Order sessions for display/navigation: each top-level session is immediately
  * followed by its worktree task children. Worktrees whose parent isn't present
@@ -319,9 +326,13 @@ export const useStore = create<AppStore>()((set, get) => ({
     const result = await window.api.mergeWorktree(sessionId, commitFirst)
     if (result.ok) {
       const cleanup = window.confirm(
-        `Merged "${wt.branch}" into "${wt.baseBranch}".\n\nRemove the worktree and delete the branch now?`
+        `Merged "${wt.branch}" into "${wt.baseBranch}"${pushNote(result.pushed)}.\n\n` +
+          `Remove the worktree and delete the branch now?`
       )
       if (cleanup) await get().removeWorktreeTask(sessionId)
+      if (result.pushed === false) {
+        window.alert(`The merge succeeded but pushing "${wt.baseBranch}" failed:\n\n${result.output}`)
+      }
       return
     }
     if (result.nothingToMerge) {
@@ -341,9 +352,15 @@ export const useStore = create<AppStore>()((set, get) => ({
       if (started.ok) {
         // Conflict prediction was conservative — it merged cleanly after all.
         const cleanup = window.confirm(
-          `Merged "${wt.branch}" into "${wt.baseBranch}" (no conflicts after all).\n\nRemove the worktree and delete the branch now?`
+          `Merged "${wt.branch}" into "${wt.baseBranch}" (no conflicts after all)${pushNote(started.pushed)}.\n\n` +
+            `Remove the worktree and delete the branch now?`
         )
         if (cleanup) await get().removeWorktreeTask(sessionId)
+        if (started.pushed === false) {
+          window.alert(
+            `The merge succeeded but pushing "${wt.baseBranch}" failed:\n\n${started.output}`
+          )
+        }
         return
       }
       if (!started.conflict) {
