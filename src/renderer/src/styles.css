@@ -383,6 +383,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.usage-row-pct {
+  width: 40px;
+  text-align: right;
+  color: var(--dim);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- explorer ---------- */
 
 .explorer {
