@@ -5,6 +5,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { TerminalInfo } from '../../../shared/types'
 import { useStore } from '../store'
+import { registerTerm, unregisterTerm } from '../termRegistry'
 
 const TERM_THEME = {
   background: '#16171a',
@@ -87,6 +88,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
     term.loadAddon(new WebLinksAddon((_e, uri) => window.api.openExternal(uri)))
     term.open(containerRef.current!)
     termRef.current = term
+    registerTerm(id, term)
     fitRef.current = fit
     searchRef.current = search
 
@@ -154,6 +156,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
     return () => {
       unsub()
       ro.disconnect()
+      unregisterTerm(id)
       term.dispose()
       termRef.current = null
     }
