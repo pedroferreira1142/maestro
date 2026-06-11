@@ -11,6 +11,7 @@ import { TabStrip } from './components/TabStrip'
 import { TerminalHost } from './components/TerminalHost'
 import { fsBus } from './fsBus'
 import { useStore } from './store'
+import { focusActiveTerminal } from './termRegistry'
 import type { SessionInfo } from '../../shared/types'
 
 function defaultActive(session: SessionInfo): string {
@@ -85,6 +86,19 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    // Chromium leaves keyboard focus on whatever button/tab was last clicked,
+    // so the next Space/Enter re-activates it instead of typing into the chat.
+    // After any click on app chrome, hand focus back to the visible terminal.
+    // Deferred so React first flushes the click's state updates (dialogs that
+    // open and autofocus an input must win the focus check).
+    const onClick = (): void => {
+      setTimeout(focusActiveTerminal, 0)
+    }
+    window.addEventListener('click', onClick)
+    return () => window.removeEventListener('click', onClick)
   }, [])
 
   if (!settings) return <div className="app loading">Loading…</div>
