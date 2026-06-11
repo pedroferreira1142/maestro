@@ -3,6 +3,7 @@ import { spawn } from 'child_process'
 import { dirname } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
 import {
+  Feature,
   RepoCategory,
   ReusableAction,
   SessionConfig,
@@ -19,6 +20,7 @@ import {
   readAttachment
 } from './Attachments'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
+import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
@@ -39,6 +41,7 @@ export function registerIpc(
   fs: FsService,
   persistence: Persistence,
   sentinels: SentinelService,
+  features: FeatureService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -113,6 +116,12 @@ export function registerIpc(
   ipcMain.handle('sentinel:run', (_e, sessionId: string, sentinelId: string) =>
     sentinels.runNow(sessionId, sentinelId)
   )
+
+  // --- features & specs ---
+  ipcMain.handle('feature:list', (_e, sessionId: string) => features.list(sessionId))
+  ipcMain.handle('feature:save', (_e, feature: Feature) => features.save(feature))
+  ipcMain.handle('feature:delete', (_e, id: string) => features.delete(id))
+  ipcMain.handle('feature:implement', (_e, id: string) => features.implement(id))
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)

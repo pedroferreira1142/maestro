@@ -11,7 +11,8 @@ const DEFAULT_STATE: AppStateFile = {
   window: { x: null, y: null, width: 1400, height: 900, maximized: false },
   settings: DEFAULT_SETTINGS,
   categories: DEFAULT_CATEGORIES,
-  actions: []
+  actions: [],
+  features: []
 }
 
 /**
@@ -74,6 +75,7 @@ export class Persistence {
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         categories: Array.isArray(raw.categories) ? raw.categories : DEFAULT_CATEGORIES,
         actions: Array.isArray(raw.actions) ? raw.actions : [],
+        features: Array.isArray(raw.features) ? raw.features : [],
         sessions: Array.isArray(raw.sessions) ? raw.sessions.map(migrateSession) : []
       }
     } catch {

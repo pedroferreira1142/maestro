@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { ActionDialog } from './components/ActionDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
+import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
@@ -31,6 +32,7 @@ export default function App(): JSX.Element {
   const categoriesOpen = useStore((s) => s.categoriesOpen)
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
+  const featuresSessionId = useStore((s) => s.featuresSessionId)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -154,6 +156,7 @@ export default function App(): JSX.Element {
       {categoriesOpen && <CategoriesDialog />}
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}
+      {featuresSessionId && <FeaturesDialog />}
     </div>
   )
 }

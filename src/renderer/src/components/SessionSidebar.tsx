@@ -141,8 +141,10 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
 
 export function SessionSidebar(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
+  const activeId = useStore((s) => s.activeId)
   const newSession = useStore((s) => s.newSession)
   const openCategories = useStore((s) => s.openCategories)
+  const openFeatures = useStore((s) => s.openFeatures)
   const ordered = orderedSessions(sessions)
 
   return (
@@ -150,6 +152,14 @@ export function SessionSidebar(): JSX.Element {
       <div className="sidebar-header">
         <span>Sessions</span>
         <span className="row">
+          <button
+            className="btn ghost"
+            title="Features & specs for the active session"
+            disabled={!activeId}
+            onClick={() => activeId && void openFeatures(activeId)}
+          >
+            ✦
+          </button>
           <button className="btn ghost" title="Manage repo categories" onClick={openCategories}>
             ⚙
           </button>
