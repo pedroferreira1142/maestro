@@ -66,6 +66,8 @@ const api: Api = {
 
   listAutoExpandRuns: (sessionId) => ipcRenderer.invoke('autoexpand:runs', sessionId),
   runAutoExpand: (sessionId) => ipcRenderer.invoke('autoexpand:run', sessionId),
+  ensureAutoExpandBranch: (sessionId) =>
+    ipcRenderer.invoke('autoexpand:ensureBranch', sessionId),
   onAutoExpandRuns: (cb) =>
     subscribe('autoexpand:runs', (id, runs) => cb(id as string, runs as AutoExpandRun[])),
 

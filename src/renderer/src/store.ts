@@ -648,6 +648,15 @@ export const useStore = create<AppStore>()((set, get) => ({
   async saveAutoExpand(sessionId, config) {
     await window.api.updateSession(sessionId, { autoExpand: config })
     await get().refresh()
+    // Create + publish the expansion branch now, so enabling auto-expand makes
+    // the branch appear on the remote immediately (not only on the first run).
+    if (config.enabled) {
+      try {
+        await window.api.ensureAutoExpandBranch(sessionId)
+      } catch {
+        // best-effort: offline / no remote — the run will retry the push
+      }
+    }
   },
 
   async runAutoExpand(sessionId) {

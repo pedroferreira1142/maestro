@@ -136,6 +136,9 @@ export function registerIpc(
   // --- auto-expand (self-expanding features pipeline) ---
   ipcMain.handle('autoexpand:runs', (_e, sessionId: string) => autoExpand.listRuns(sessionId))
   ipcMain.handle('autoexpand:run', (_e, sessionId: string) => autoExpand.runNow(sessionId))
+  ipcMain.handle('autoexpand:ensureBranch', (_e, sessionId: string) =>
+    autoExpand.prepareBranch(sessionId)
+  )
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)

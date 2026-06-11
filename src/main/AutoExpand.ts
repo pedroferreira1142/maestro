@@ -90,6 +90,27 @@ export class AutoExpandService {
   }
 
   /**
+   * Create the session's expansion branch (if missing) and publish it to the
+   * remote so it shows up on the host (e.g. GitHub). Called when the user
+   * enables/saves auto-expand, so the branch appears immediately rather than
+   * only when the first run fires. Best-effort and idempotent.
+   */
+  async prepareBranch(sessionId: string): Promise<void> {
+    const session = this.persistence.state.sessions.find((s) => s.id === sessionId)
+    const cfg = session?.autoExpand
+    if (!session || !cfg?.enabled || !cfg.branch) return
+    if (!existsSync(session.folder)) return
+    const info = await Git.worktreeInfo(session.folder)
+    if (!info.isRepo || !info.repoRoot) return
+    await Git.ensureBranch(info.repoRoot, cfg.branch)
+    try {
+      await Git.publishBranch(info.repoRoot, cfg.branch)
+    } catch {
+      // offline / no remote / auth — the branch still exists locally
+    }
+  }
+
+  /**
    * One reconcile pass: schedule/fire due sessions and drop runtime state for
    * sessions that no longer exist or disabled the pipeline. Driven purely by
    * the persisted config, so saves via the ordinary session-update path need
@@ -169,8 +190,14 @@ export class AutoExpandService {
         throw new Error('This session’s folder is not a git repository.')
       }
       // The expansion branch the user named: created from HEAD when missing,
-      // never checked out — the user's working tree stays untouched.
+      // never checked out — the user's working tree stays untouched. Publish it
+      // so it's visible on the remote (e.g. GitHub); best-effort if offline.
       await Git.ensureBranch(info.repoRoot, cfg.branch)
+      try {
+        await Git.publishBranch(info.repoRoot, cfg.branch)
+      } catch {
+        // offline / no remote — keep going; the branch exists locally
+      }
 
       // Phase 1 — idea agent proposes candidate features.
       const existingTitles = this.features.list(session.id).map((f) => f.title)

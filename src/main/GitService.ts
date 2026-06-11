@@ -315,6 +315,32 @@ export async function pushBranch(
   return { ok: res.code === 0, output: res.output }
 }
 
+/** The remote to publish to: 'origin' if present, else the first remote, else null. */
+export async function defaultRemote(folder: string): Promise<string | null> {
+  const res = await git(folder, ['remote'])
+  if (res.code !== 0) return null
+  const remotes = res.stdout.split(/\r?\n/).map((r) => r.trim()).filter(Boolean)
+  if (remotes.length === 0) return null
+  return remotes.includes('origin') ? 'origin' : remotes[0]
+}
+
+/**
+ * Push `branch` to the default remote and set its upstream (`push -u`). Unlike
+ * pushBranch this works for a freshly created branch that has no upstream yet,
+ * so the branch becomes visible on the host (e.g. GitHub). Returns null when the
+ * repo has no remote; otherwise {ok, output}. Callers should treat it as
+ * best-effort (offline, auth, protected branch can all make ok:false).
+ */
+export async function publishBranch(
+  folder: string,
+  branch: string
+): Promise<{ ok: boolean; output: string } | null> {
+  const remote = await defaultRemote(folder)
+  if (!remote) return null
+  const res = await git(folder, ['push', '-u', remote, branch])
+  return { ok: res.code === 0, output: res.output }
+}
+
 /** Number of dirty (changed/untracked) files in a working tree; null if not a repo. */
 export async function dirtyCount(folder: string): Promise<number | null> {
   try {

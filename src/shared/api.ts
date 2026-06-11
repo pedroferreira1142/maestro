@@ -121,6 +121,8 @@ export interface Api {
   listAutoExpandRuns(sessionId: string): Promise<AutoExpandRun[]>
   /** Trigger one pipeline run right now, regardless of the enabled state/timer. */
   runAutoExpand(sessionId: string): Promise<void>
+  /** Create + publish the session's expansion branch now (so it shows on the remote). */
+  ensureAutoExpandBranch(sessionId: string): Promise<void>
   /** Fired whenever a session's auto-expand run list changes (phase/status updates). */
   onAutoExpandRuns(cb: (sessionId: string, runs: AutoExpandRun[]) => void): Unsubscribe
 
