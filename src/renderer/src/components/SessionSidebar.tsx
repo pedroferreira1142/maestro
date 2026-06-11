@@ -3,7 +3,7 @@ import type { SessionInfo, SessionStatus } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
 
-const STATUS_GLYPH: Record<SessionStatus, string> = {
+export const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
   working: '⟳',
   'needs-attention': '●',

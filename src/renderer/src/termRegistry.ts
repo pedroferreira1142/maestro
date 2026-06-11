@@ -38,7 +38,8 @@ export function focusActiveTerminal(): void {
     st.pendingWorktree ||
     st.categoriesOpen ||
     st.actionEditor ||
-    st.globalSearchOpen
+    st.globalSearchOpen ||
+    st.paletteOpen
   )
     return
   const el = document.activeElement as HTMLElement | null

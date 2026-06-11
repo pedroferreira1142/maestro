@@ -183,6 +183,8 @@ interface AppStore {
   attentionQueue: AttentionEntry[]
   /** Whether the global scrollback-search palette (Ctrl+Shift+F) is open. */
   globalSearchOpen: boolean
+  /** Whether the Ctrl+K command palette is open. */
+  paletteOpen: boolean
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -282,6 +284,9 @@ interface AppStore {
   setBackgroundOpacity(opacity: number): Promise<void>
   openGlobalSearch(): void
   closeGlobalSearch(): void
+  openPalette(): void
+  closePalette(): void
+  togglePalette(): void
 }
 
 /** Default active tab for a session: its persisted active terminal, else first. */
@@ -316,6 +321,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   backgroundDialogOpen: false,
   attentionQueue: [],
   globalSearchOpen: false,
+  paletteOpen: false,
 
   async init() {
     const [settings, savedActive, backgroundDataUrl] = await Promise.all([
@@ -965,6 +971,18 @@ export const useStore = create<AppStore>()((set, get) => ({
     if (!settings) return
     set({ settings: { ...settings, backgroundOpacity: opacity } })
     await window.api.setSettings({ backgroundOpacity: opacity })
+  },
+
+  openPalette() {
+    set({ paletteOpen: true })
+  },
+
+  closePalette() {
+    set({ paletteOpen: false })
+  },
+
+  togglePalette() {
+    set((st) => ({ paletteOpen: !st.paletteOpen }))
   },
 
   applyFsEvents(id, events) {

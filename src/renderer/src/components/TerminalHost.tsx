@@ -137,6 +137,9 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
         return false
       if (ctrl && shift && ['n', 'w', 'e', 'f'].includes(key)) return false
       if (ctrl && !shift && key === 'b') return false
+      // Ctrl+K (Cmd+K on macOS) opens the command palette; never reaches the pty.
+      const meta = window.api.platform === 'darwin' && ev.metaKey
+      if ((ctrl || meta) && !shift && key === 'k') return false
       return true
     })
 
