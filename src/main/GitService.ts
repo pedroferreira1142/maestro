@@ -175,6 +175,38 @@ export async function mergeBranch(
   }
 }
 
+/**
+ * Start a merge of `branch` into `baseBranch` and — unlike mergeBranch — LEAVE
+ * the conflict markers in the base working tree, so a human or Claude can
+ * resolve them and commit. Still refuses on a dirty base tree. Returns
+ * conflict:true when the merge stopped on conflicts (the expected case).
+ */
+export async function startMergeLeaveConflicts(
+  baseFolder: string,
+  branch: string,
+  baseBranch: string
+): Promise<MergeResult> {
+  const dirty = await dirtyCount(baseFolder)
+  if (dirty && dirty > 0) {
+    return {
+      ok: false,
+      conflict: false,
+      output:
+        `The base repo (${baseFolder}) has ${dirty} uncommitted file(s). ` +
+        `Commit or stash them there before merging.`
+    }
+  }
+  const head = await git(baseFolder, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (head.code === 0 && head.stdout.trim() !== baseBranch) {
+    const co = await git(baseFolder, ['checkout', baseBranch])
+    if (co.code !== 0) return { ok: false, conflict: false, output: co.output }
+  }
+  const res = await git(baseFolder, ['merge', '--no-ff', branch])
+  if (res.code === 0) return { ok: true, conflict: false, output: res.output }
+  const merging = await git(baseFolder, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'])
+  return { ok: false, conflict: merging.code === 0, output: res.output }
+}
+
 /** Number of dirty (changed/untracked) files in a working tree; null if not a repo. */
 export async function dirtyCount(folder: string): Promise<number | null> {
   try {

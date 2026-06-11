@@ -57,6 +57,8 @@ export interface Api {
   worktreeState(sessionId: string): Promise<WorktreeTaskState>
   /** Merge a task branch into its base; commitFirst commits pending work to the branch first. */
   mergeWorktree(sessionId: string, commitFirst: boolean): Promise<MergeResult>
+  /** Start the merge for real, LEAVING conflict markers in the base repo for assisted resolution. */
+  startConflictedMerge(sessionId: string): Promise<MergeResult>
   /** Close a worktree task, remove its worktree, and optionally delete its branch. */
   removeWorktree(sessionId: string, deleteBranch: boolean): Promise<void>
 
