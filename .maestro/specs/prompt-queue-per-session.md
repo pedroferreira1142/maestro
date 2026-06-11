@@ -1,0 +1,14 @@
+# Prompt queue per session
+
+Let users queue follow-up prompts on any session; when the session's claude terminal goes idle, the next queued prompt is automatically typed into the PTY and submitted. Add an optional `promptQueue: {id: string, text: string}[]` field to SessionConfig in src/shared/types.ts (persisted automatically by Persistence.ts since load() spreads defaults over raw JSON). Dispatch lives in SessionManager (src/main/SessionManager.ts): hook the existing handleStatus path — when a claude terminal transitions to 'idle' and the session has queued prompts, send the oldest using the established pattern from runClaudeAction (write the prompt, then write '\r' separately after CLAUDE_SUBMIT_DELAY_MS, because claude's TUI treats a trailing \r in the same chunk as a pasted newline). Target the terminal the same way runClaudeAction does: the active claude tab, falling back to the first claude tab. Expose queue add/remove/reorder over IPC (src/main/ipc.ts, src/preload/index.ts, src/shared/api.ts) and mirror it in the zustand store (src/renderer/src/store.ts). UI: a queue badge with pending count on each session entry in SessionSidebar.tsx, opening a popover that lists queued prompts with an input to add, plus per-item delete and move up/down. Existing 'session:changed' broadcasts keep the renderer in sync.
+
+## Specs
+
+- [ ] From the sidebar, the user can open a queue popover on any session (active or not) and add a prompt to that session's queue via a text input; the prompt appears in the popover's list immediately.
+- [ ] Each session entry in the sidebar shows a badge with the number of queued prompts; the badge is absent when the queue is empty.
+- [ ] When a session's claude terminal transitions to idle and has remained idle continuously for at least 3 seconds, the oldest queued prompt is automatically submitted to that terminal: claude visibly receives the prompt and starts working on it (it is not left sitting as typed-but-unsubmitted text, and no literal newline is inserted instead of a submit).
+- [ ] No queued prompt is dispatched while the session's claude terminal is working, needs-attention, starting, exited, or in error — the queue simply holds until the terminal is next idle and alive.
+- [ ] With several prompts queued, they dispatch strictly one at a time in queue order: the second prompt is sent only after claude finishes the first and the terminal returns to idle again.
+- [ ] In the queue popover, the user can delete any queued prompt and reorder prompts (move up/down); the dispatch order follows the displayed order.
+- [ ] Queued prompts survive an app restart: prompts queued before quitting are still listed (and still dispatch) after Maestro is relaunched, via sessions.json.
+- [ ] Dispatching a queued prompt decrements the badge count, and sessions with no claude terminal at all never dispatch (queueing UI may still exist but nothing is sent to non-claude terminals).

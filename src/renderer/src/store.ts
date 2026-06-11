@@ -206,6 +206,12 @@ interface AppStore {
   removeWorktreeTask(sessionId: string): Promise<void>
   /** Force the Git panel to reload its status + history. */
   refreshGit(): void
+  /** Append a prompt to a session's auto-dispatch queue. */
+  queueAdd(sessionId: string, text: string): Promise<void>
+  /** Delete one queued prompt. */
+  queueRemove(sessionId: string, itemId: string): Promise<void>
+  /** Move a queued prompt one slot up (-1) or down (+1). */
+  queueMove(sessionId: string, itemId: string, delta: -1 | 1): Promise<void>
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
@@ -578,6 +584,22 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.alert(`Couldn't remove the worktree:\n\n${(err as Error).message}`)
       await get().refresh()
     }
+  },
+
+  async queueAdd(sessionId, text) {
+    if (!text.trim()) return
+    await window.api.queueAdd(sessionId, text)
+    await get().refresh()
+  },
+
+  async queueRemove(sessionId, itemId) {
+    await window.api.queueRemove(sessionId, itemId)
+    await get().refresh()
+  },
+
+  async queueMove(sessionId, itemId, delta) {
+    await window.api.queueMove(sessionId, itemId, delta)
+    await get().refresh()
   },
 
   async loadCategoriesAndSkills() {

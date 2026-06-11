@@ -1174,6 +1174,150 @@ body {
   color: var(--accent);
 }
 
+/* ---------- prompt queue ---------- */
+
+.session-entry .queue-btn {
+  visibility: hidden;
+  position: relative;
+}
+
+/* With queued prompts, the button (and its count badge) is always visible. */
+.session-entry:hover .queue-btn,
+.session-entry .queue-btn.has-items {
+  visibility: visible;
+}
+
+.queue-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.queue-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  cursor: default;
+}
+
+.queue-popover {
+  position: fixed;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+}
+
+.queue-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-popover-hint {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.queue-empty {
+  font-size: 12px;
+  color: var(--dim);
+  padding: 4px 0;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.queue-item-pos {
+  font-size: 11px;
+  color: var(--dim);
+  flex: none;
+}
+
+.queue-item-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.queue-item .btn {
+  flex: none;
+  font-size: 11px;
+}
+
+.queue-item .btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.queue-add-row {
+  display: flex;
+  gap: 6px;
+}
+
+.queue-add-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.queue-add-row input:focus {
+  border-color: var(--accent);
+}
+
+.queue-add-row .btn {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.queue-add-row .btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ---------- modals ---------- */
 
 .modal-overlay {
