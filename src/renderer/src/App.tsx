@@ -15,7 +15,7 @@ import { TabStrip } from './components/TabStrip'
 import { TerminalHost } from './components/TerminalHost'
 import { fsBus } from './fsBus'
 import { useStore } from './store'
-import { focusActiveTerminal } from './termRegistry'
+import { focusActiveTerminal, jumpToAttentionTerminal } from './termRegistry'
 import type { SessionInfo } from '../../shared/types'
 
 function defaultActive(session: SessionInfo): string {
@@ -93,6 +93,9 @@ export default function App(): JSX.Element {
       } else if (!shift && ev.key.toLowerCase() === 'b') {
         ev.preventDefault()
         st.toggleExplorer()
+      } else if (!shift && (ev.key === '`' || ev.code === 'Backquote')) {
+        ev.preventDefault()
+        jumpToAttentionTerminal()
       }
     }
     window.addEventListener('keydown', onKey)
