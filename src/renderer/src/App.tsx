@@ -3,6 +3,7 @@ import { ActionDialog } from './components/ActionDialog'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
+import { CommandPalette } from './components/CommandPalette'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { FileViewer } from './components/FileViewer'
@@ -38,6 +39,7 @@ export default function App(): JSX.Element {
   const autoExpandSessionId = useStore((s) => s.autoExpandSessionId)
   const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
+  const paletteOpen = useStore((s) => s.paletteOpen)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -93,6 +95,9 @@ export default function App(): JSX.Element {
       } else if (!shift && ev.key.toLowerCase() === 'b') {
         ev.preventDefault()
         st.toggleExplorer()
+      } else if (!shift && ev.key.toLowerCase() === 'k') {
+        ev.preventDefault()
+        st.togglePalette()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -174,6 +179,7 @@ export default function App(): JSX.Element {
       {featuresSessionId && <FeaturesDialog />}
       {autoExpandSessionId && <AutoExpandDialog />}
       {backgroundDialogOpen && <BackgroundDialog />}
+      {paletteOpen && <CommandPalette />}
     </div>
   )
 }

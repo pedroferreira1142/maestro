@@ -24,6 +24,7 @@ function defaultActive(session: SessionInfo): string {
 export function focusActiveTerminal(): void {
   const st = useStore.getState()
   if (st.pendingNewSession || st.pendingWorktree || st.categoriesOpen || st.actionEditor) return
+  if (st.paletteOpen) return
   const el = document.activeElement as HTMLElement | null
   if (
     el &&
