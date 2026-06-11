@@ -329,10 +329,49 @@ export const useStore = create<AppStore>()((set, get) => ({
       return
     }
     if (result.conflict) {
-      get().setActive(sessionId)
-      window.alert(
-        `Merge of "${wt.branch}" into "${wt.baseBranch}" stopped on conflicts.\n\n` +
-          `Resolve them in the terminal (in the BASE repo: ${wt.baseFolder}), then commit.\n\n${result.output}`
+      const assist = window.confirm(
+        `${result.output}\n\n` +
+          `Start the merge and let Claude resolve the conflicts in the parent session ` +
+          `("${get().sessions.find((s) => s.config.id === wt.parentSessionId)?.config.name ?? wt.baseFolder}")?\n\n` +
+          `OK = Claude resolves there · Cancel = leave everything untouched`
+      )
+      if (!assist) return
+
+      const started = await window.api.startConflictedMerge(sessionId)
+      if (started.ok) {
+        // Conflict prediction was conservative — it merged cleanly after all.
+        const cleanup = window.confirm(
+          `Merged "${wt.branch}" into "${wt.baseBranch}" (no conflicts after all).\n\nRemove the worktree and delete the branch now?`
+        )
+        if (cleanup) await get().removeWorktreeTask(sessionId)
+        return
+      }
+      if (!started.conflict) {
+        window.alert(`Couldn't start the merge:\n\n${started.output}`)
+        return
+      }
+
+      // The merge now sits conflicted in the base repo. Put the parent session's
+      // claude on it: focus that terminal and type (not submit) the prompt.
+      const parent = get().sessions.find((s) => s.config.id === wt.parentSessionId)
+      const claudeTerm = parent?.terminals.find(
+        (t) => t.config.kind === 'claude' && t.status !== 'exited' && t.status !== 'error'
+      )
+      if (!parent || !claudeTerm) {
+        window.alert(
+          `The merge is started and stopped on conflicts in:\n${wt.baseFolder}\n\n` +
+            `No running claude terminal found in the parent session — resolve the conflicts ` +
+            `there manually, then commit (or abort with "git merge --abort").`
+        )
+        return
+      }
+      get().setActive(parent.config.id)
+      get().setActiveTab(parent.config.id, claudeTerm.config.id)
+      window.api.ptyWrite(
+        claudeTerm.config.id,
+        `We are merging the parallel-task branch "${wt.branch}" into "${wt.baseBranch}" and git ` +
+          `stopped on merge conflicts in this repo. Resolve all conflicts (see git status), ` +
+          `preserving the intent of both sides, then stage everything and complete the merge commit.`
       )
       return
     }

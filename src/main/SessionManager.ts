@@ -329,6 +329,24 @@ export class SessionManager {
   }
 
   /**
+   * Start the task's merge FOR REAL and leave conflict markers in the base
+   * working tree, so the parent session's claude (or the user) can resolve and
+   * commit. Used after mergeWorktree predicted conflicts and the user opted
+   * into assisted resolution.
+   */
+  async startConflictedMerge(sessionId: string): Promise<MergeResult> {
+    const config = this.getConfig(sessionId)
+    if (!config?.worktree) {
+      return { ok: false, conflict: false, output: 'Not a worktree task session.' }
+    }
+    const { baseFolder, branch, baseBranch } = config.worktree
+    if (!(await Git.branchExists(baseFolder, branch))) {
+      return { ok: false, conflict: false, output: `Branch "${branch}" no longer exists.` }
+    }
+    return Git.startMergeLeaveConflicts(baseFolder, branch, baseBranch)
+  }
+
+  /**
    * Close a worktree task, remove its git worktree, and optionally delete its
    * branch. Kills the task's terminals first and WAITS for them to exit —
    * Windows can't delete a folder that's still some process's cwd. Tolerates

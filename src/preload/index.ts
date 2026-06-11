@@ -37,6 +37,7 @@ const api: Api = {
   worktreeState: (sessionId) => ipcRenderer.invoke('worktree:state', sessionId),
   mergeWorktree: (sessionId, commitFirst) =>
     ipcRenderer.invoke('worktree:merge', sessionId, commitFirst),
+  startConflictedMerge: (sessionId) => ipcRenderer.invoke('worktree:mergeResolve', sessionId),
   removeWorktree: (sessionId, deleteBranch) =>
     ipcRenderer.invoke('worktree:remove', sessionId, deleteBranch),
 

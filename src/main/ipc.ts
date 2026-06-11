@@ -68,6 +68,9 @@ export function registerIpc(
   ipcMain.handle('worktree:merge', (_e, sessionId: string, commitFirst: boolean) =>
     sessions.mergeWorktree(sessionId, commitFirst)
   )
+  ipcMain.handle('worktree:mergeResolve', (_e, sessionId: string) =>
+    sessions.startConflictedMerge(sessionId)
+  )
   ipcMain.handle('worktree:remove', (_e, sessionId: string, deleteBranch: boolean) =>
     sessions.removeWorktree(sessionId, deleteBranch)
   )
