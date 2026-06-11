@@ -351,7 +351,9 @@ export class SessionManager {
   /** Live git facts about a worktree task (uncommitted files, commits ahead). */
   async getWorktreeTaskState(sessionId: string): Promise<WorktreeTaskState> {
     const config = this.getConfig(sessionId)
-    if (!config?.worktree) return { folderExists: false, dirty: -1, ahead: -1 }
+    if (!config?.worktree) {
+      return { folderExists: false, dirty: -1, ahead: -1, conflictFiles: null }
+    }
     const folderExists = existsSync(config.folder)
     const dirty = folderExists ? await Git.dirtyCount(config.folder) : null
     const ahead = await Git.aheadCount(
@@ -359,7 +361,23 @@ export class SessionManager {
       config.worktree.baseBranch,
       config.worktree.branch
     )
-    return { folderExists, dirty: dirty ?? -1, ahead: ahead ?? -1 }
+    // Predict merge conflicts only when there are commits to merge. merge-tree
+    // works entirely in-memory — no working tree, index, or HEAD is touched.
+    let conflictFiles: string[] | null = null
+    if (ahead !== null && ahead > 0) {
+      try {
+        conflictFiles = await Git.mergeConflictFiles(
+          config.worktree.baseFolder,
+          config.worktree.branch,
+          config.worktree.baseBranch
+        )
+      } catch {
+        conflictFiles = null // git missing/broken → 'unknown', never an error
+      }
+    } else if (ahead === 0) {
+      conflictFiles = [] // nothing to merge, trivially conflict-free
+    }
+    return { folderExists, dirty: dirty ?? -1, ahead: ahead ?? -1, conflictFiles }
   }
 
   /**

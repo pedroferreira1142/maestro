@@ -464,6 +464,12 @@ export interface WorktreeTaskState {
   dirty: number
   /** Commits on the task branch not yet on the base branch; -1 if unknown. */
   ahead: number
+  /**
+   * Files that would conflict if the task branch were merged into base, from a
+   * read-only `git merge-tree` dry-run. [] = merge predicted clean, null = the
+   * prediction is unavailable (missing refs, old git, nothing to merge).
+   */
+  conflictFiles: string[] | null
 }
 
 export interface TerminalInfo {
