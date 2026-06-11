@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { basicSetup, EditorView } from 'codemirror'
 import { EditorState, RangeSetBuilder, StateField, type Extension } from '@codemirror/state'
 import { Decoration, type DecorationSet } from '@codemirror/view'
+import { LanguageDescription } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { oneDark } from '@codemirror/theme-one-dark'
 import type { GitFileDiff } from '../../../shared/types'
@@ -109,7 +110,7 @@ export function DiffViewer({ sessionId, relPath }: Props): JSX.Element {
     let cancelled = false
     const previousScroll = viewRef.current?.scrollDOM.scrollTop ?? 0
     void (async () => {
-      const desc = languages.find((l) => l.name === 'Diff')
+      const desc = LanguageDescription.matchFilename(languages, 'changes.diff')
       let lang: Extension = []
       if (desc) {
         try {
