@@ -1174,6 +1174,56 @@ body {
   color: var(--accent);
 }
 
+/* Merge-readiness badge: the Merge button's predicted outcome, at a glance. */
+.merge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  font-size: 10px;
+  line-height: 15px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.merge-badge.clean {
+  color: var(--green);
+  border-color: rgba(76, 195, 138, 0.45);
+}
+
+.merge-badge.conflicts {
+  color: var(--attention);
+  border-color: rgba(226, 185, 61, 0.45);
+}
+
+/* 'no commits' and 'unknown' stay muted; 'unknown' a notch dimmer. */
+.merge-badge.unknown {
+  opacity: 0.65;
+}
+
+/* A (re-)check is in flight — pulse until the fresh result lands. */
+.merge-badge.checking {
+  animation: merge-badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes merge-badge-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Dirty marker: uncommitted files would need a commit-first merge. */
+.merge-badge-dirty {
+  color: var(--attention);
+  font-size: 12px;
+  line-height: 15px;
+}
+
 /* ---------- prompt queue ---------- */
 
 .session-entry .queue-btn {

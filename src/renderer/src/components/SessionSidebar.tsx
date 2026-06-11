@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { SessionInfo, SessionStatus } from '../../../shared/types'
+import type { SessionInfo, SessionStatus, WorktreeMeta } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
 
@@ -10,6 +10,77 @@ export const STATUS_GLYPH: Record<SessionStatus, string> = {
   idle: '○',
   exited: '✕',
   error: '!'
+}
+
+/** Max conflicted file paths listed in the badge tooltip before '+N more'. */
+const TOOLTIP_FILE_CAP = 10
+
+type ReadinessKind = 'checking' | 'unknown' | 'none' | 'clean' | 'conflicts'
+
+/**
+ * Merge-readiness badge for a worktree task: tells the outcome of the Merge
+ * button before it is clicked. Reads the state the store polls/caches; a click
+ * forces an immediate re-check (shown with a pulsing 'checking' appearance).
+ */
+function MergeBadge({ sessionId, worktree }: { sessionId: string; worktree: WorktreeMeta }): JSX.Element {
+  const state = useStore((s) => s.worktreeStates[sessionId])
+  const checking = useStore((s) => s.worktreeChecking[sessionId] ?? false)
+  const refreshWorktreeState = useStore((s) => s.refreshWorktreeState)
+
+  let kind: ReadinessKind
+  if (!state) kind = 'checking' // first check still in flight
+  else if (!state.folderExists || state.ahead < 0) kind = 'unknown'
+  else if (state.ahead === 0) kind = 'none'
+  else if (state.conflictFiles === null) kind = 'unknown'
+  else if (state.conflictFiles.length > 0) kind = 'conflicts'
+  else kind = 'clean'
+
+  const dirty = (state?.dirty ?? 0) > 0
+  const label =
+    kind === 'checking'
+      ? '…'
+      : kind === 'unknown'
+        ? 'unknown'
+        : kind === 'none'
+          ? 'no commits'
+          : kind === 'clean'
+            ? 'clean'
+            : `conflicts (${state?.conflictFiles?.length ?? 0})`
+
+  const lines: string[] = []
+  if (kind === 'conflicts' && state?.conflictFiles) {
+    lines.push(`Merging ${worktree.branch} into ${worktree.baseBranch} would conflict in:`)
+    for (const f of state.conflictFiles.slice(0, TOOLTIP_FILE_CAP)) lines.push(`  ${f}`)
+    if (state.conflictFiles.length > TOOLTIP_FILE_CAP) {
+      lines.push(`  +${state.conflictFiles.length - TOOLTIP_FILE_CAP} more`)
+    }
+  } else if (kind === 'clean' && state) {
+    lines.push(`${state.ahead} commit(s) ahead of ${worktree.baseBranch} — no conflicts predicted`)
+  } else if (kind === 'none') {
+    lines.push(`No commits beyond ${worktree.baseBranch} yet`)
+  } else if (kind === 'unknown') {
+    lines.push('Merge readiness unknown — the prediction could not be computed')
+  } else {
+    lines.push('Checking merge readiness…')
+  }
+  if (state && state.dirty > 0) {
+    lines.push(`${state.dirty} uncommitted file(s) in the worktree`)
+  }
+  lines.push('Click to re-check')
+
+  return (
+    <button
+      className={`merge-badge ${kind}${checking ? ' checking' : ''}`}
+      title={lines.join('\n')}
+      onClick={(e) => {
+        e.stopPropagation()
+        void refreshWorktreeState(sessionId)
+      }}
+    >
+      {label}
+      {dirty && <span className="merge-badge-dirty">•</span>}
+    </button>
+  )
 }
 
 /**
@@ -180,6 +251,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
               <span className="worktree-branch" title={`${worktree.branch} → ${worktree.baseBranch}`}>
                 {worktree.branch} → {worktree.baseBranch}
               </span>
+              <MergeBadge sessionId={id} worktree={worktree} />
               <button
                 className="btn ghost merge-btn"
                 title={`Merge ${worktree.branch} into ${worktree.baseBranch}`}
