@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { ActionDialog } from './components/ActionDialog'
+import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { FeaturesDialog } from './components/FeaturesDialog'
@@ -34,6 +35,7 @@ export default function App(): JSX.Element {
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
   const featuresSessionId = useStore((s) => s.featuresSessionId)
+  const autoExpandSessionId = useStore((s) => s.autoExpandSessionId)
   const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
 
@@ -53,6 +55,7 @@ export default function App(): JSX.Element {
         useStore.getState().applyFsEvents(id, events)
       }),
       window.api.onSentinelRuns((id, runs) => useStore.getState().applySentinelRuns(id, runs)),
+      window.api.onAutoExpandRuns((id, runs) => useStore.getState().applyAutoExpandRuns(id, runs)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)
@@ -169,6 +172,7 @@ export default function App(): JSX.Element {
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}
       {featuresSessionId && <FeaturesDialog />}
+      {autoExpandSessionId && <AutoExpandDialog />}
       {backgroundDialogOpen && <BackgroundDialog />}
     </div>
   )

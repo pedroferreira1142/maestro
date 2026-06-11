@@ -134,6 +134,8 @@ export interface SessionConfig {
   worktree?: WorktreeMeta | null
   /** Background watcher agents configured for this session. */
   sentinels?: SentinelConfig[]
+  /** Self-expanding-features pipeline config; null/absent = never configured. */
+  autoExpand?: AutoExpandConfig | null
 }
 
 // ---------- sentinels (background watcher agents) ----------
@@ -242,6 +244,72 @@ export const SENTINEL_TEMPLATES: SentinelTemplate[] = [
   }
 ]
 
+// ---------- auto-expand (self-expanding features pipeline) ----------
+
+/**
+ * Per-session config for the self-expanding-features pipeline. On a timer,
+ * Maestro runs an idea agent (headless, read-only claude) that proposes new
+ * feature ideas for the repo, an evaluator agent that picks the best idea and
+ * writes it up as a feature with concrete specs, and then implements that
+ * feature the ordinary way: a worktree task session branched off `branch`.
+ * The branch is created automatically when it doesn't exist, so the whole
+ * expansion stays isolated until the user merges it.
+ */
+export interface AutoExpandConfig {
+  enabled: boolean
+  /** Branch the expansion grows on: task worktrees branch off it and merge back into it. */
+  branch: string
+  /** Minutes between pipeline runs. */
+  intervalMinutes: number
+  /** Optional steering for the idea agent (themes, constraints, no-go areas). */
+  guidance: string
+  /** Max auto-created features being implemented at once; runs are skipped above it. */
+  maxConcurrent: number
+}
+
+export const DEFAULT_AUTO_EXPAND: AutoExpandConfig = {
+  enabled: false,
+  branch: 'auto/expansion',
+  intervalMinutes: 60,
+  guidance: '',
+  maxConcurrent: 1
+}
+
+/** One idea proposed by the idea agent (and scored by the evaluator). */
+export interface AutoExpandIdea {
+  title: string
+  description: string
+  /** Why this idea fits this repo/users, per the agent. */
+  rationale: string
+}
+
+/** Pipeline progress of a run, shown live in the dialog. */
+export type AutoExpandPhase = 'ideating' | 'evaluating' | 'implementing' | 'done'
+
+export type AutoExpandRunStatus = 'running' | 'done' | 'skipped' | 'error'
+
+/** One execution of the auto-expand pipeline. Held in memory (not persisted). */
+export interface AutoExpandRun {
+  id: string
+  sessionId: string
+  startedAt: number
+  finishedAt: number | null
+  status: AutoExpandRunStatus
+  phase: AutoExpandPhase
+  /** What fired the run: 'interval' or 'manual'. */
+  reason: string
+  /** Ideas proposed by the idea agent (empty until that phase completes). */
+  ideas: AutoExpandIdea[]
+  /** Title of the idea the evaluator picked; null until chosen. */
+  chosenTitle: string | null
+  /** The evaluator's reasoning for its pick (or the skip/error message). */
+  verdict: string
+  /** The feature created from the winning idea; null until created. */
+  featureId: string | null
+  /** The worktree task session implementing it; null until spawned. */
+  taskSessionId: string | null
+}
+
 /** One commit in a repo's history, for the sidebar Git panel. */
 export interface GitCommit {
   /** Full 40-char SHA. */
@@ -318,6 +386,8 @@ export interface Feature {
   status: FeatureStatus
   /** The worktree task session spawned to implement it; null until implemented. */
   taskSessionId?: string | null
+  /** True when the feature was created by the auto-expand pipeline. */
+  auto?: boolean
   createdAt: number
 }
 

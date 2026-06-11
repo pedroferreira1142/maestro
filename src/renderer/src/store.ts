@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type {
   AttachmentInfo,
+  AutoExpandConfig,
+  AutoExpandRun,
   Feature,
   FsEvent,
   RepoCategory,
@@ -111,6 +113,10 @@ interface AppStore {
   sentinelRuns: Record<string, SentinelRun[]>
   /** Sentinel create/edit dialog payload; non-null while the dialog is open. */
   sentinelEditor: { sessionId: string; sentinel: SentinelConfig | 'new' } | null
+  /** Auto-expand run history per session id, newest first. */
+  autoExpandRuns: Record<string, AutoExpandRun[]>
+  /** The session whose auto-expand dialog is open; null when closed. */
+  autoExpandSessionId: string | null
   /** Bumped to make the Git panel reload (after commits/merges/init). */
   gitNonce: number
   /** The session whose Features & Specs dialog is open; null when closed. */
@@ -166,6 +172,15 @@ interface AppStore {
   runSentinel(sessionId: string, sentinelId: string): Promise<void>
   openSentinelEditor(sessionId: string, sentinel: SentinelConfig | 'new'): void
   closeSentinelEditor(): void
+  openAutoExpand(sessionId: string): Promise<void>
+  closeAutoExpand(): void
+  loadAutoExpandRuns(sessionId: string): Promise<void>
+  /** Replace a session's run list (pushed from main on every phase change). */
+  applyAutoExpandRuns(sessionId: string, runs: AutoExpandRun[]): void
+  /** Persist a session's auto-expand config (saved on the session, like sentinels). */
+  saveAutoExpand(sessionId: string, config: AutoExpandConfig): Promise<void>
+  /** Trigger one pipeline run right now. */
+  runAutoExpand(sessionId: string): Promise<void>
   openFeatures(sessionId: string): Promise<void>
   closeFeatures(): void
   loadFeatures(sessionId: string): Promise<void>
@@ -226,6 +241,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   actionEditor: null,
   sentinelRuns: {},
   sentinelEditor: null,
+  autoExpandRuns: {},
+  autoExpandSessionId: null,
   gitNonce: 0,
   featuresSessionId: null,
   features: [],
@@ -608,6 +625,33 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeSentinelEditor() {
     set({ sentinelEditor: null })
+  },
+
+  async openAutoExpand(sessionId) {
+    set({ autoExpandSessionId: sessionId })
+    await get().loadAutoExpandRuns(sessionId)
+  },
+
+  closeAutoExpand() {
+    set({ autoExpandSessionId: null })
+  },
+
+  async loadAutoExpandRuns(sessionId) {
+    const runs = await window.api.listAutoExpandRuns(sessionId)
+    set((st) => ({ autoExpandRuns: { ...st.autoExpandRuns, [sessionId]: runs } }))
+  },
+
+  applyAutoExpandRuns(sessionId, runs) {
+    set((st) => ({ autoExpandRuns: { ...st.autoExpandRuns, [sessionId]: runs } }))
+  },
+
+  async saveAutoExpand(sessionId, config) {
+    await window.api.updateSession(sessionId, { autoExpand: config })
+    await get().refresh()
+  },
+
+  async runAutoExpand(sessionId) {
+    await window.api.runAutoExpand(sessionId)
   },
 
   async openFeatures(sessionId) {

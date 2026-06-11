@@ -77,8 +77,10 @@ export class FeatureService {
    * so claude can read it, and auto-submit a prompt pointing claude at the file.
    * Links the feature to the spawned session and flips it to 'implementing'.
    * Throws (with git's message) if the parent isn't a repo or the worktree fails.
+   * `baseBranch` overrides which branch the task forks from and merges back
+   * into (used by auto-expand to keep its growth on a dedicated branch).
    */
-  async implement(featureId: string): Promise<SessionInfo> {
+  async implement(featureId: string, baseBranch?: string): Promise<SessionInfo> {
     const feature = this.features.find((f) => f.id === featureId)
     if (!feature) throw new Error('Unknown feature')
     const parent = this.sessions.getConfig(feature.sessionId)
@@ -91,7 +93,7 @@ export class FeatureService {
     const session = await this.sessions.createWorktreeSession(feature.sessionId, {
       name: feature.title,
       branch,
-      baseBranch: info.branch ?? 'HEAD',
+      baseBranch: baseBranch ?? info.branch ?? 'HEAD',
       initialPrompt: implementPrompt(feature)
     })
 

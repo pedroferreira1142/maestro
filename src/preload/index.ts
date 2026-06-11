@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
+  AutoExpandRun,
   Feature,
   FsEvent,
   RepoCategory,
@@ -62,6 +63,11 @@ const api: Api = {
   ptyAttach: (terminalId) => ipcRenderer.invoke('pty:attach', terminalId),
   onPtyData: (cb) =>
     subscribe('pty:data', (id, data) => cb(id as string, data as string)),
+
+  listAutoExpandRuns: (sessionId) => ipcRenderer.invoke('autoexpand:runs', sessionId),
+  runAutoExpand: (sessionId) => ipcRenderer.invoke('autoexpand:run', sessionId),
+  onAutoExpandRuns: (cb) =>
+    subscribe('autoexpand:runs', (id, runs) => cb(id as string, runs as AutoExpandRun[])),
 
   listSentinelRuns: (sessionId) => ipcRenderer.invoke('sentinel:runs', sessionId),
   runSentinel: (sessionId, sentinelId) => ipcRenderer.invoke('sentinel:run', sessionId, sentinelId),
