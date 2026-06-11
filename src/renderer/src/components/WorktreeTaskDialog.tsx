@@ -118,7 +118,7 @@ export function WorktreeTaskDialog(): JSX.Element {
           <span>First prompt (optional)</span>
           <textarea
             rows={3}
-            placeholder="Typed into claude when it starts — you review and press Enter to send."
+            placeholder="Sent to claude automatically once it starts."
             value={initialPrompt}
             onChange={(e) => setInitialPrompt(e.target.value)}
           />

@@ -29,6 +29,11 @@ import { PtySession } from './PtySession'
 /** How long to wait before typing a worktree task's initial prompt into claude. */
 const INITIAL_PROMPT_DELAY_MS = 3500
 
+/** Gap between typing the initial prompt and pressing Enter. Claude's TUI treats a
+ *  multi-char chunk as a paste, so a trailing \r in the same write would insert a
+ *  newline instead of submitting. */
+const INITIAL_PROMPT_SUBMIT_DELAY_MS = 300
+
 /** How long to wait for killed PTY processes to release their cwd (Windows file locks). */
 const PTY_EXIT_WAIT_MS = 4000
 
@@ -249,9 +254,17 @@ export class SessionManager {
 
     const prompt = opts.initialPrompt?.trim()
     if (prompt) {
-      // Type (but don't submit) the first prompt once claude has booted, so the
-      // user reviews it and presses Enter. Best-effort; skipped if the pty died.
-      setTimeout(() => this.ptys.get(claudeTerminal.id)?.write(prompt), INITIAL_PROMPT_DELAY_MS)
+      // Type the first prompt once claude has booted, then submit it so the task
+      // starts working immediately. Best-effort; skipped if the pty died.
+      setTimeout(() => {
+        const pty = this.ptys.get(claudeTerminal.id)
+        if (!pty) return
+        pty.write(prompt)
+        setTimeout(
+          () => this.ptys.get(claudeTerminal.id)?.write('\r'),
+          INITIAL_PROMPT_SUBMIT_DELAY_MS
+        )
+      }, INITIAL_PROMPT_DELAY_MS)
     }
 
     this.notifyChanged()
