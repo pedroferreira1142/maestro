@@ -47,6 +47,8 @@ const api: Api = {
   gitStatus: (sessionId) => ipcRenderer.invoke('git:status', sessionId),
   gitLog: (sessionId, limit) => ipcRenderer.invoke('git:log', sessionId, limit),
   gitInit: (sessionId) => ipcRenderer.invoke('git:init', sessionId),
+  gitChangedFiles: (sessionId) => ipcRenderer.invoke('git:changedFiles', sessionId),
+  gitFileDiff: (sessionId, path) => ipcRenderer.invoke('git:fileDiff', sessionId, path),
 
   addTerminal: (sessionId, kind) => ipcRenderer.invoke('terminal:add', sessionId, kind),
   closeTerminal: (sessionId, terminalId) =>

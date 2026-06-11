@@ -6,6 +6,8 @@ import type {
   FileContent,
   FsEvent,
   GitCommit,
+  GitFileChange,
+  GitFileDiff,
   GitStatus,
   MergeResult,
   RepoCategory,
@@ -74,6 +76,10 @@ export interface Api {
   gitLog(sessionId: string, limit?: number): Promise<GitCommit[]>
   /** Initialize a git repo in the session's folder; returns the new git facts. */
   gitInit(sessionId: string): Promise<WorktreeInfo>
+  /** Changed files (staged, unstaged, untracked) in the session's working tree. */
+  gitChangedFiles(sessionId: string): Promise<GitFileChange[]>
+  /** Unified diff of one file's working-tree state against HEAD (path is repo-root-relative). */
+  gitFileDiff(sessionId: string, path: string): Promise<GitFileDiff>
 
   // terminals (within a session's folder)
   addTerminal(sessionId: string, kind: TerminalKind): Promise<TerminalInfo | null>

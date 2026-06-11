@@ -350,6 +350,31 @@ export interface GitStatus {
   remoteUrl: string | null
 }
 
+/** One changed path in a repo's working tree, listed in the Git panel. */
+export interface GitFileChange {
+  /** Path relative to the repo root, forward slashes (as git prints it). */
+  path: string
+  /**
+   * Compact status code: the staged+unstaged letters from porcelain v2
+   * (e.g. 'M', 'A', 'D', 'AM'), 'U' for unmerged, '?' for untracked.
+   */
+  status: string
+  /** True when at least part of the change is staged. */
+  staged: boolean
+  /** Previous path for renames/copies; undefined otherwise. */
+  origPath?: string
+}
+
+/** Unified diff of one file's working-tree state against HEAD, for the diff tab. */
+export interface GitFileDiff {
+  /** Unified diff text; '' when the file has no changes against HEAD. */
+  diff: string
+  /** True when git reports the change as binary (no text diff available). */
+  binary: boolean
+  /** True when the diff text was cut off because it exceeded the size cap. */
+  truncated: boolean
+}
+
 // ---------- features & specs ----------
 
 /** One requirement line within a feature. `done` is a manual authoring checkbox. */

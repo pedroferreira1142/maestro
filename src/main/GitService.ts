@@ -1,7 +1,14 @@
 import { execFile, execFileSync } from 'child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, join, resolve } from 'path'
-import type { GitCommit, GitStatus, MergeResult, WorktreeInfo } from '../shared/types'
+import type {
+  GitCommit,
+  GitFileChange,
+  GitFileDiff,
+  GitStatus,
+  MergeResult,
+  WorktreeInfo
+} from '../shared/types'
 
 export interface GitResult {
   code: number
@@ -132,6 +139,95 @@ export async function gitStatus(folder: string): Promise<GitStatus> {
     return out
   } catch {
     return base
+  }
+}
+
+/** Everything after the first `n` space-separated fields of a porcelain-v2 line. */
+function skipFields(line: string, n: number): string {
+  let idx = 0
+  for (let i = 0; i < n; i++) {
+    const next = line.indexOf(' ', idx)
+    if (next < 0) return ''
+    idx = next + 1
+  }
+  return line.slice(idx)
+}
+
+/**
+ * Changed files (staged, unstaged, untracked, unmerged) in a working tree,
+ * parsed from `git status --porcelain=v2`. Paths are repo-root-relative and
+ * unquoted in v2, so names with spaces survive. [] for a non-repo folder.
+ */
+export async function gitChangedFiles(folder: string): Promise<GitFileChange[]> {
+  try {
+    const res = await git(folder, ['status', '--porcelain=v2'])
+    if (res.code !== 0) return []
+    const files: GitFileChange[] = []
+    for (const line of res.stdout.split(/\r?\n/)) {
+      if (line.startsWith('1 ') || line.startsWith('2 ')) {
+        // "1 XY sub mH mI mW hH hI <path>" / "2 ... X<score> <path>\t<origPath>"
+        const xy = line.slice(2, 4)
+        const status = (xy[0] === '.' ? '' : xy[0]) + (xy[1] === '.' ? '' : xy[1])
+        const staged = xy[0] !== '.'
+        const rest = skipFields(line, line.startsWith('1 ') ? 8 : 9)
+        if (!rest) continue
+        const tab = rest.indexOf('\t')
+        files.push({
+          path: tab >= 0 ? rest.slice(0, tab) : rest,
+          status: status || 'M',
+          staged,
+          origPath: tab >= 0 ? rest.slice(tab + 1) : undefined
+        })
+      } else if (line.startsWith('u ')) {
+        // "u XY sub m1 m2 m3 mW h1 h2 h3 <path>" — unmerged (conflicted)
+        const path = skipFields(line, 10)
+        if (path) files.push({ path, status: 'U', staged: false })
+      } else if (line.startsWith('? ')) {
+        files.push({ path: line.slice(2), status: '?', staged: false })
+      }
+    }
+    files.sort((a, b) => a.path.localeCompare(b.path))
+    return files
+  } catch {
+    return []
+  }
+}
+
+/** Cap on the diff text sent to the renderer; beyond it the diff is truncated. */
+const MAX_DIFF_CHARS = 500_000
+
+/**
+ * Unified diff of one file's working-tree state against HEAD (staged plus
+ * unstaged combined). Untracked files — which HEAD knows nothing about — are
+ * rendered whole as added lines via a no-index diff against the null device.
+ * `path` is repo-root-relative (as produced by gitChangedFiles), so the diff
+ * runs from the repo root even when `folder` is a subdirectory.
+ */
+export async function gitFileDiff(folder: string, path: string): Promise<GitFileDiff> {
+  const empty: GitFileDiff = { diff: '', binary: false, truncated: false }
+  try {
+    const top = await git(folder, ['rev-parse', '--show-toplevel'])
+    const root = top.code === 0 && top.stdout.trim() ? top.stdout.trim() : folder
+    const tracked = await git(root, ['ls-files', '--error-unmatch', '--', path])
+    let res: GitResult
+    if (tracked.code === 0) {
+      res = await git(root, ['diff', 'HEAD', '--', path])
+      // Unborn HEAD (repo without commits, exit 128): fall back to index vs
+      // worktree. Other non-zero codes (e.g. maxBuffer cut) keep their output.
+      if (res.code === 128) res = await git(root, ['diff', '--', path])
+    } else {
+      // git special-cases /dev/null on every platform, Windows included.
+      // --no-index exits 1 when the files differ — that's the expected case.
+      res = await git(root, ['diff', '--no-index', '--', '/dev/null', path])
+    }
+    const text = res.stdout
+    const binary = /^Binary files .* differ$/m.test(text)
+    if (text.length <= MAX_DIFF_CHARS) return { diff: text, binary, truncated: false }
+    // Cut on a line boundary so the viewer never colors a half line.
+    const cut = text.lastIndexOf('\n', MAX_DIFF_CHARS)
+    return { diff: text.slice(0, cut > 0 ? cut : MAX_DIFF_CHARS), binary, truncated: true }
+  } catch {
+    return empty
   }
 }
 
