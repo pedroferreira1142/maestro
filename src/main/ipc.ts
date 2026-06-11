@@ -77,6 +77,13 @@ export function registerIpc(
     sessions.removeWorktree(sessionId, deleteBranch)
   )
 
+  // --- git (status + history for the session's repo) ---
+  ipcMain.handle('git:status', (_e, sessionId: string) => sessions.getGitStatus(sessionId))
+  ipcMain.handle('git:log', (_e, sessionId: string, limit?: number) =>
+    sessions.getGitLog(sessionId, limit)
+  )
+  ipcMain.handle('git:init', (_e, sessionId: string) => sessions.initRepo(sessionId))
+
   // --- terminals (within a session's folder) ---
   ipcMain.handle('terminal:add', (_e, sessionId: string, kind: TerminalKind) =>
     sessions.addTerminal(sessionId, kind)

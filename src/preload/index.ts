@@ -42,6 +42,10 @@ const api: Api = {
   removeWorktree: (sessionId, deleteBranch) =>
     ipcRenderer.invoke('worktree:remove', sessionId, deleteBranch),
 
+  gitStatus: (sessionId) => ipcRenderer.invoke('git:status', sessionId),
+  gitLog: (sessionId, limit) => ipcRenderer.invoke('git:log', sessionId, limit),
+  gitInit: (sessionId) => ipcRenderer.invoke('git:init', sessionId),
+
   addTerminal: (sessionId, kind) => ipcRenderer.invoke('terminal:add', sessionId, kind),
   closeTerminal: (sessionId, terminalId) =>
     ipcRenderer.invoke('terminal:close', sessionId, terminalId),

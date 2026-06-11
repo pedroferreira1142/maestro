@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, join, resolve } from 'path'
-import type { MergeResult, WorktreeInfo } from '../shared/types'
+import type { GitCommit, GitStatus, MergeResult, WorktreeInfo } from '../shared/types'
 
 export interface GitResult {
   code: number
@@ -66,6 +66,92 @@ export async function worktreeInfo(folder: string): Promise<WorktreeInfo> {
     // git missing → treat as "not a repo" so the UI just hides the action.
     return { isRepo: false, repoRoot: null, branch: null }
   }
+}
+
+/**
+ * Initialize a new git repository in `folder` and ensure HEAD points at a
+ * commit, so the folder can immediately host worktree tasks (`git worktree add`
+ * needs at least one commit — a fresh repo's branch is unborn). The user's
+ * existing files are left untracked; we only add an empty initial commit. The
+ * initial commit uses the user's configured git identity — if none is set, git
+ * fails and that message is surfaced to the caller. No-op-safe on an existing repo.
+ */
+export async function gitInit(folder: string): Promise<GitResult> {
+  const init = await git(folder, ['init'])
+  if (init.code !== 0) return init
+  const hasHead = await git(folder, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+  if (hasHead.code !== 0) {
+    const commit = await git(folder, ['commit', '--allow-empty', '-m', 'Initial commit'])
+    if (commit.code !== 0) return commit
+  }
+  return init
+}
+
+/** Working-tree + branch state for the Git panel. Safe on any path. */
+export async function gitStatus(folder: string): Promise<GitStatus> {
+  const base: GitStatus = {
+    isRepo: false,
+    branch: null,
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    staged: 0,
+    unstaged: 0,
+    untracked: 0,
+    remoteUrl: null
+  }
+  try {
+    const res = await git(folder, ['status', '--porcelain=v2', '--branch'])
+    if (res.code !== 0) return base
+    const out: GitStatus = { ...base, isRepo: true }
+    for (const line of res.stdout.split(/\r?\n/)) {
+      if (line.startsWith('# branch.head ')) {
+        const b = line.slice('# branch.head '.length).trim()
+        out.branch = b === '(detached)' ? null : b
+      } else if (line.startsWith('# branch.upstream ')) {
+        out.upstream = line.slice('# branch.upstream '.length).trim() || null
+      } else if (line.startsWith('# branch.ab ')) {
+        const m = line.slice('# branch.ab '.length).trim().match(/\+(\d+)\s+-(\d+)/)
+        if (m) {
+          out.ahead = Number.parseInt(m[1], 10)
+          out.behind = Number.parseInt(m[2], 10)
+        }
+      } else if (line.startsWith('1 ') || line.startsWith('2 ')) {
+        // "<1|2> XY ..." — X = staged, Y = unstaged; '.' means unmodified.
+        const xy = line.slice(2, 4)
+        if (xy[0] && xy[0] !== '.') out.staged++
+        if (xy[1] && xy[1] !== '.') out.unstaged++
+      } else if (line.startsWith('? ')) {
+        out.untracked++
+      } else if (line.startsWith('u ')) {
+        out.unstaged++ // unmerged (conflicted) path
+      }
+    }
+    const remote = await git(folder, ['remote', 'get-url', 'origin'])
+    if (remote.code === 0) out.remoteUrl = remote.stdout.trim() || null
+    return out
+  } catch {
+    return base
+  }
+}
+
+/**
+ * Most recent commits on the current branch, newest first. Returns [] for a
+ * non-repo or an empty repo (no commits yet). Fields are split on a unit
+ * separator so subjects/refs can contain any other character safely.
+ */
+export async function gitLog(folder: string, limit = 30): Promise<GitCommit[]> {
+  const SEP = '\x1f'
+  const fmt = ['%H', '%h', '%s', '%an', '%ar', '%D'].join(SEP)
+  const res = await git(folder, ['log', '-n', String(limit), `--pretty=format:${fmt}`])
+  if (res.code !== 0) return []
+  const commits: GitCommit[] = []
+  for (const line of res.stdout.split(/\r?\n/)) {
+    if (!line) continue
+    const [hash, shortHash, subject, author, relDate, refs] = line.split(SEP)
+    commits.push({ hash, shortHash, subject, author, relDate, refs: refs ?? '' })
+  }
+  return commits
 }
 
 /**

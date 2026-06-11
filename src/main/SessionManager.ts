@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { existsSync, rmSync } from 'fs'
 import {
+  GitCommit,
+  GitStatus,
   MergeResult,
   RepoCategory,
   ReusableAction,
@@ -179,6 +181,46 @@ export class SessionManager {
   async getWorktreeInfo(sessionId: string): Promise<WorktreeInfo> {
     const config = this.getConfig(sessionId)
     if (!config) return { isRepo: false, repoRoot: null, branch: null }
+    return Git.worktreeInfo(config.folder)
+  }
+
+  /** Working-tree + branch state of a session's repo (for the Git panel). */
+  async getGitStatus(sessionId: string): Promise<GitStatus> {
+    const config = this.getConfig(sessionId)
+    if (!config) {
+      return {
+        isRepo: false,
+        branch: null,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        remoteUrl: null
+      }
+    }
+    return Git.gitStatus(config.folder)
+  }
+
+  /** Recent commit history of a session's repo, newest first. */
+  async getGitLog(sessionId: string, limit?: number): Promise<GitCommit[]> {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    return Git.gitLog(config.folder, limit)
+  }
+
+  /**
+   * Initialize a git repository in a session's folder (so a non-repo session can
+   * host parallel tasks). Returns the resulting git facts; throws git's message
+   * on failure (e.g. no git identity configured for the initial commit).
+   */
+  async initRepo(sessionId: string): Promise<WorktreeInfo> {
+    const config = this.getConfig(sessionId)
+    if (!config) throw new Error('Unknown session')
+    const res = await Git.gitInit(config.folder)
+    if (res.code !== 0) throw new Error(res.output || 'git init failed')
+    this.notifyChanged()
     return Git.worktreeInfo(config.folder)
   }
 

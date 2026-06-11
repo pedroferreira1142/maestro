@@ -3,6 +3,8 @@ import type {
   DirEntry,
   FileContent,
   FsEvent,
+  GitCommit,
+  GitStatus,
   MergeResult,
   RepoCategory,
   ReusableAction,
@@ -62,6 +64,14 @@ export interface Api {
   startConflictedMerge(sessionId: string): Promise<MergeResult>
   /** Close a worktree task, remove its worktree, and optionally delete its branch. */
   removeWorktree(sessionId: string, deleteBranch: boolean): Promise<void>
+
+  // git (status + history for a session's repo)
+  /** Working-tree + branch state of a session's repo; isRepo:false off-repo. */
+  gitStatus(sessionId: string): Promise<GitStatus>
+  /** Recent commits on the current branch, newest first ([] for empty/non-repo). */
+  gitLog(sessionId: string, limit?: number): Promise<GitCommit[]>
+  /** Initialize a git repo in the session's folder; returns the new git facts. */
+  gitInit(sessionId: string): Promise<WorktreeInfo>
 
   // terminals (within a session's folder)
   addTerminal(sessionId: string, kind: TerminalKind): Promise<TerminalInfo | null>
