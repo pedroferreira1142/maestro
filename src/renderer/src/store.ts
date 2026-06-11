@@ -110,6 +110,8 @@ interface AppStore {
   sentinelRuns: Record<string, SentinelRun[]>
   /** Sentinel create/edit dialog payload; non-null while the dialog is open. */
   sentinelEditor: { sessionId: string; sentinel: SentinelConfig | 'new' } | null
+  /** Bumped to make the Git panel reload (after commits/merges/init). */
+  gitNonce: number
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -131,6 +133,8 @@ interface AppStore {
   cancelWorktreeTask(): void
   mergeWorktree(sessionId: string): Promise<void>
   removeWorktreeTask(sessionId: string): Promise<void>
+  /** Force the Git panel to reload its status + history. */
+  refreshGit(): void
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
@@ -197,6 +201,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   actionEditor: null,
   sentinelRuns: {},
   sentinelEditor: null,
+  gitNonce: 0,
 
   async init() {
     const [settings, savedActive] = await Promise.all([
@@ -272,10 +277,29 @@ export const useStore = create<AppStore>()((set, get) => ({
   async newWorktreeTask(parentSessionId) {
     const parent = get().sessions.find((s) => s.config.id === parentSessionId)
     if (!parent) return
-    const info = await window.api.worktreeInfo(parentSessionId)
+    let info = await window.api.worktreeInfo(parentSessionId)
     if (!info.isRepo || !info.repoRoot) {
-      window.alert(`"${parent.config.name}" isn't a git repository, so it can't host worktree tasks.`)
-      return
+      // Parallel tasks need a git repo to branch off. Offer to create one here
+      // rather than dead-ending the user.
+      const create = window.confirm(
+        `"${parent.config.name}" isn't a git repository yet.\n\n` +
+          `Initialize a new git repository in this folder so it can host parallel tasks?\n\n` +
+          `(Your files are left untracked — only an empty initial commit is added.)`
+      )
+      if (!create) return
+      try {
+        info = await window.api.gitInit(parentSessionId)
+      } catch (err) {
+        window.alert(`Couldn't initialize a git repository:\n\n${(err as Error).message}`)
+        return
+      }
+      get().refreshGit()
+      if (!info.isRepo || !info.repoRoot) {
+        window.alert(
+          `The folder still isn't a git repository after initializing — check that git is installed.`
+        )
+        return
+      }
     }
     set({
       pendingWorktree: {
@@ -285,6 +309,10 @@ export const useStore = create<AppStore>()((set, get) => ({
         baseBranch: info.branch ?? 'HEAD'
       }
     })
+  },
+
+  refreshGit() {
+    set((st) => ({ gitNonce: st.gitNonce + 1 }))
   },
 
   async confirmWorktreeTask(opts) {
@@ -300,6 +328,7 @@ export const useStore = create<AppStore>()((set, get) => ({
       })
       await get().refresh()
       get().setActive(info.config.id)
+      get().refreshGit()
     } catch (err) {
       window.alert(`Couldn't create the worktree:\n\n${(err as Error).message}`)
     }
@@ -341,6 +370,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     }
 
     const result = await window.api.mergeWorktree(sessionId, commitFirst)
+    get().refreshGit() // history changed (commit and/or merge)
     if (result.ok) {
       const cleanup = window.confirm(
         `Merged "${wt.branch}" into "${wt.baseBranch}"${pushNote(result.pushed)}.\n\n` +
@@ -433,6 +463,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     try {
       await window.api.removeWorktree(sessionId, delBranch)
       await get().refresh()
+      get().refreshGit()
     } catch (err) {
       window.alert(`Couldn't remove the worktree:\n\n${(err as Error).message}`)
       await get().refresh()

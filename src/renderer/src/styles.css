@@ -506,6 +506,146 @@ body {
   font-size: 11px;
 }
 
+/* ---------- git panel (status + history, below the file tree) ---------- */
+
+.git-panel {
+  border-top: 1px solid var(--border);
+  max-height: 280px;
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.git-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 0 12px;
+}
+
+.git-title-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.git-chevron {
+  font-size: 10px;
+}
+
+.git-empty {
+  padding: 4px 12px 6px;
+  font-size: 11px;
+  color: var(--dim);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.git-empty-text {
+  line-height: 1.4;
+}
+
+.git-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px 6px;
+}
+
+.git-branch {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--text);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-branch.detached {
+  color: var(--attention);
+}
+
+.git-chip {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.git-chip.staged { color: var(--green); }
+.git-chip.unstaged { color: var(--attention); }
+.git-chip.untracked { color: var(--working); }
+.git-chip.clean { color: var(--green); }
+
+.git-history {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-commit {
+  display: flex;
+  gap: 7px;
+  padding: 3px 12px;
+  cursor: default;
+}
+
+.git-commit:hover {
+  background: var(--panel-2);
+}
+
+.git-commit-hash {
+  flex: none;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
+  color: var(--accent);
+  padding-top: 1px;
+}
+
+.git-commit-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.git-commit-subject {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-commit-meta {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.git-ref {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 0 4px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: rgba(88, 166, 255, 0.18);
+  color: var(--working);
+  vertical-align: middle;
+}
+
+.git-ref.tag {
+  background: rgba(226, 185, 61, 0.18);
+  color: var(--attention);
+}
+
 /* ---------- reusable actions (below the file tree) ---------- */
 
 .actions {

@@ -3,6 +3,7 @@ import type { AttachmentInfo, DirEntry, SessionInfo } from '../../../shared/type
 import { fsBus } from '../fsBus'
 import { useStore } from '../store'
 import { ActionsPanel } from './ActionsPanel'
+import { GitPanel } from './GitPanel'
 import { SentinelsPanel } from './SentinelsPanel'
 
 const FLASH_MS = 8000
@@ -216,6 +217,7 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
         </button>
       </div>
       <div className="explorer-tree">{renderDir('', 0)}</div>
+      <GitPanel key={id} session={session} />
       <ActionsPanel sessionId={id} />
       <SentinelsPanel session={session} />
       {recent.length > 0 && (

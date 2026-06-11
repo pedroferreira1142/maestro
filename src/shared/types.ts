@@ -242,6 +242,46 @@ export const SENTINEL_TEMPLATES: SentinelTemplate[] = [
   }
 ]
 
+/** One commit in a repo's history, for the sidebar Git panel. */
+export interface GitCommit {
+  /** Full 40-char SHA. */
+  hash: string
+  /** Abbreviated SHA, for display. */
+  shortHash: string
+  /** First line of the commit message. */
+  subject: string
+  /** Author name. */
+  author: string
+  /** Relative date string from git (e.g. '2 hours ago'). */
+  relDate: string
+  /** Ref decorations, e.g. 'HEAD -> main, origin/main, tag: v1'; '' when none. */
+  refs: string
+}
+
+/**
+ * Working-tree + branch state of a session's repo, shown in the Git panel.
+ * `isRepo:false` for a non-repo folder (the panel then offers to initialize one).
+ */
+export interface GitStatus {
+  isRepo: boolean
+  /** Current branch, or null when detached / not a repo. */
+  branch: string | null
+  /** Upstream tracking ref (e.g. 'origin/main'), or null. */
+  upstream: string | null
+  /** Commits ahead of the upstream. */
+  ahead: number
+  /** Commits behind the upstream. */
+  behind: number
+  /** Files with staged changes. */
+  staged: number
+  /** Tracked files with unstaged changes (includes unmerged/conflicted). */
+  unstaged: number
+  /** Untracked files. */
+  untracked: number
+  /** URL of the 'origin' remote, or null when there is none. */
+  remoteUrl: string | null
+}
+
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
 export interface WorktreeInfo {
   /** Whether the folder is inside a git work tree. */
