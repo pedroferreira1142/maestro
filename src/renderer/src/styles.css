@@ -1556,6 +1556,143 @@ body {
   color: var(--dim);
 }
 
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.viewer-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.viewer-toggle .btn.ghost {
+  border: none;
+  padding: 2px 10px;
+}
+
+.viewer-markdown {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 28px 40px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.viewer-markdown h1,
+.viewer-markdown h2,
+.viewer-markdown h3,
+.viewer-markdown h4,
+.viewer-markdown h5,
+.viewer-markdown h6 {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+
+.viewer-markdown h1 {
+  font-size: 1.7em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.viewer-markdown h2 {
+  font-size: 1.4em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.viewer-markdown h3 {
+  font-size: 1.15em;
+}
+
+.viewer-markdown p,
+.viewer-markdown ul,
+.viewer-markdown ol,
+.viewer-markdown blockquote,
+.viewer-markdown table,
+.viewer-markdown pre {
+  margin: 0.6em 0;
+}
+
+.viewer-markdown ul,
+.viewer-markdown ol {
+  padding-left: 1.6em;
+}
+
+.viewer-markdown li + li {
+  margin-top: 0.2em;
+}
+
+.viewer-markdown a {
+  color: var(--working);
+  text-decoration: none;
+}
+
+.viewer-markdown a:hover {
+  text-decoration: underline;
+}
+
+.viewer-markdown code {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.viewer-markdown pre {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+}
+
+.viewer-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.viewer-markdown blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 12px;
+  color: var(--dim);
+}
+
+.viewer-markdown table {
+  border-collapse: collapse;
+}
+
+.viewer-markdown th,
+.viewer-markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+}
+
+.viewer-markdown th {
+  background: var(--panel);
+}
+
+.viewer-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+
+.viewer-markdown img {
+  max-width: 100%;
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {

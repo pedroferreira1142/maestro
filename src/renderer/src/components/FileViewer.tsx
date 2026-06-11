@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { basicSetup, EditorView } from 'codemirror'
 import { EditorState, type Extension } from '@codemirror/state'
 import { LanguageDescription } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import type { FileContent } from '../../../shared/types'
 import { fsBus } from '../fsBus'
 
@@ -18,11 +20,25 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function isMarkdownPath(relPath: string): boolean {
+  return /\.(md|markdown|mdown|mkd)$/i.test(relPath)
+}
+
 export function FileViewer({ sessionId, relPath }: Props): JSX.Element {
   const editorParentRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const [content, setContent] = useState<FileContent | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [mdPreview, setMdPreview] = useState(true)
+
+  const isMarkdown = isMarkdownPath(relPath)
+  const showPreview = isMarkdown && mdPreview && content?.kind === 'text'
+
+  const previewHtml = useMemo(() => {
+    if (!showPreview || content?.kind !== 'text') return ''
+    const html = marked.parse(content.content, { async: false, gfm: true })
+    return DOMPurify.sanitize(html)
+  }, [showPreview, content])
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -45,6 +61,11 @@ export function FileViewer({ sessionId, relPath }: Props): JSX.Element {
   }, [sessionId, relPath, load])
 
   useEffect(() => {
+    if (showPreview) {
+      viewRef.current?.destroy()
+      viewRef.current = null
+      return
+    }
     if (!content || content.kind !== 'text' || !editorParentRef.current) return
     let cancelled = false
     const previousScroll = viewRef.current?.scrollDOM.scrollTop ?? 0
@@ -80,7 +101,7 @@ export function FileViewer({ sessionId, relPath }: Props): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [content, relPath])
+  }, [content, relPath, showPreview])
 
   useEffect(() => {
     return () => {
@@ -95,12 +116,30 @@ export function FileViewer({ sessionId, relPath }: Props): JSX.Element {
         <span className="viewer-path" title={relPath}>
           {relPath}
         </span>
-        <button
-          className="btn"
-          onClick={() => void window.api.openInEditor(sessionId, relPath)}
-        >
-          Open in editor
-        </button>
+        <div className="viewer-actions">
+          {isMarkdown && content?.kind === 'text' && (
+            <div className="viewer-toggle">
+              <button
+                className={`btn ghost${mdPreview ? ' on' : ''}`}
+                onClick={() => setMdPreview(true)}
+              >
+                Preview
+              </button>
+              <button
+                className={`btn ghost${mdPreview ? '' : ' on'}`}
+                onClick={() => setMdPreview(false)}
+              >
+                Source
+              </button>
+            </div>
+          )}
+          <button
+            className="btn"
+            onClick={() => void window.api.openInEditor(sessionId, relPath)}
+          >
+            Open in editor
+          </button>
+        </div>
       </div>
       <div className="viewer-body">
         {error && <div className="viewer-msg">Could not read file: {error}</div>}
@@ -113,7 +152,21 @@ export function FileViewer({ sessionId, relPath }: Props): JSX.Element {
                 {formatSize(content.size)}
               </div>
             )}
-            <div className="viewer-editor" ref={editorParentRef} />
+            {showPreview ? (
+              <div
+                className="viewer-markdown"
+                onClick={(e) => {
+                  const anchor = (e.target as HTMLElement).closest('a')
+                  if (!anchor) return
+                  e.preventDefault()
+                  const href = anchor.getAttribute('href') ?? ''
+                  if (/^https?:\/\//i.test(href)) window.open(href)
+                }}
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            ) : (
+              <div className="viewer-editor" ref={editorParentRef} />
+            )}
           </>
         )}
         {content?.kind === 'image' && (
