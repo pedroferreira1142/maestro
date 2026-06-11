@@ -90,6 +90,14 @@ export interface Api {
   ptyAttach(terminalId: string): Promise<string>
   onPtyData(cb: (terminalId: string, data: string) => void): Unsubscribe
 
+  // prompt queue (follow-up prompts auto-sent to claude when the terminal sits idle)
+  /** Append a prompt to a session's queue. */
+  queueAdd(sessionId: string, text: string): Promise<void>
+  /** Delete one queued prompt. */
+  queueRemove(sessionId: string, itemId: string): Promise<void>
+  /** Move a queued prompt one slot up (-1) or down (+1). */
+  queueMove(sessionId: string, itemId: string, delta: -1 | 1): Promise<void>
+
   // repo categories (context profiles: which skills/MCP load per kind of repo)
   listCategories(): Promise<RepoCategory[]>
   saveCategories(categories: RepoCategory[]): Promise<void>

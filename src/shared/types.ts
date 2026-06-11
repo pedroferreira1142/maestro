@@ -116,6 +116,12 @@ export interface WorktreeMeta {
   baseFolder: string
 }
 
+/** One prompt waiting in a session's queue, auto-sent when claude sits idle. */
+export interface QueuedPrompt {
+  id: string
+  text: string
+}
+
 export interface SessionConfig {
   id: string
   name: string
@@ -136,6 +142,8 @@ export interface SessionConfig {
   sentinels?: SentinelConfig[]
   /** Self-expanding-features pipeline config; null/absent = never configured. */
   autoExpand?: AutoExpandConfig | null
+  /** Follow-up prompts dispatched to claude, oldest first, when it next sits idle. */
+  promptQueue?: QueuedPrompt[]
 }
 
 // ---------- sentinels (background watcher agents) ----------

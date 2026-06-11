@@ -107,6 +107,17 @@ export function registerIpc(
     sessions.setActiveTerminal(sessionId, terminalId)
   )
 
+  // --- prompt queue (auto-sent to claude when the terminal sits idle) ---
+  ipcMain.handle('queue:add', (_e, sessionId: string, text: string) =>
+    sessions.queueAdd(sessionId, text)
+  )
+  ipcMain.handle('queue:remove', (_e, sessionId: string, itemId: string) =>
+    sessions.queueRemove(sessionId, itemId)
+  )
+  ipcMain.handle('queue:move', (_e, sessionId: string, itemId: string, delta: -1 | 1) =>
+    sessions.queueMove(sessionId, itemId, delta)
+  )
+
   // --- repo categories (context profiles) ---
   ipcMain.handle('categories:list', () => sessions.categories)
   ipcMain.handle('categories:save', (_e, categories: RepoCategory[]) =>
