@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, SessionStatus, TerminalInfo, TerminalKind } from '../../../shared/types'
 import { diffTabPath, isDiffTab, useStore } from '../store'
+import { copyTranscript, exportTranscript } from '../transcript'
 
 const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
@@ -34,6 +35,69 @@ const ADD_MENU: { kind: TerminalKind; label: string }[] =
         { kind: 'bash', label: 'bash' }
       ]
 
+/**
+ * Right-click context menu on a terminal tab: export/copy the terminal's
+ * scrollback transcript. Fixed-position (like the ＋▾ menu) so it escapes the
+ * tabstrip's overflow clipping; closes on outside click or Escape.
+ */
+function TabContextMenu({
+  pos,
+  sessionId,
+  terminalId,
+  onClose
+}: {
+  pos: { x: number; y: number }
+  sessionId: string
+  terminalId: string
+  onClose: () => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      className="tab-add-menu"
+      style={{ left: pos.x, top: pos.y }}
+      // A click inside must not bubble to the tab (which would select it).
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className="tab-add-item"
+        onClick={() => {
+          onClose()
+          void exportTranscript(sessionId, terminalId)
+        }}
+      >
+        Export transcript…
+      </button>
+      <button
+        className="tab-add-item"
+        onClick={() => {
+          onClose()
+          copyTranscript(terminalId)
+        }}
+      >
+        Copy transcript
+      </button>
+    </div>
+  )
+}
+
 function TerminalTab({
   sessionId,
   terminal,
@@ -50,6 +114,7 @@ function TerminalTab({
   const renameTerminal = useStore((s) => s.renameTerminal)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(terminal.config.title)
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
   const id = terminal.config.id
 
   const commit = (): void => {
@@ -64,6 +129,10 @@ function TerminalTab({
       className={`tab term-tab status-${terminal.status}${active ? ' active' : ''}`}
       title={`${terminal.config.kind} · ${terminal.status}`}
       onClick={() => setActiveTab(sessionId, id)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenuPos({ x: e.clientX, y: e.clientY })
+      }}
     >
       <span className={`tab-icon glyph status-${terminal.status}`}>
         {STATUS_GLYPH[terminal.status]}
@@ -101,6 +170,14 @@ function TerminalTab({
         >
           ✕
         </button>
+      )}
+      {menuPos && (
+        <TabContextMenu
+          pos={menuPos}
+          sessionId={sessionId}
+          terminalId={id}
+          onClose={() => setMenuPos(null)}
+        />
       )}
     </div>
   )
