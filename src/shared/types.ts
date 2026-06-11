@@ -251,6 +251,32 @@ export interface ProjectUsage {
   lastActivityAt: number
 }
 
+/**
+ * Burn-rate projection for the current 5-hour usage window. Plan quotas are
+ * not exposed locally, so both the window grid and the token limit are
+ * inferred from the transcripts: activity is partitioned into 5-hour blocks
+ * (hour-aligned, mirroring Claude's rolling limit windows) and the limit is
+ * the largest token count seen in any completed block.
+ */
+export interface UsageProjection {
+  /** Start of the current block, ms since epoch (hour-aligned). */
+  blockStartAt: number
+  /** When the current block's window resets, ms since epoch. */
+  blockEndAt: number
+  /** Tokens consumed so far in the current block (all token kinds). */
+  blockTokens: number
+  /** Largest tokens in any completed block — stand-in for the plan limit (0 = no history). */
+  maxBlockTokens: number
+  /** Burn rate over the active part of the current block. */
+  tokensPerMin: number
+  /**
+   * When the block is projected to hit `maxBlockTokens` at the current rate,
+   * ms since epoch. Null when not on pace to run out before the window
+   * resets, or when there is no history to infer a limit from.
+   */
+  runsOutAt: number | null
+}
+
 /** Aggregated Claude Code API usage parsed from ~/.claude/projects transcripts. */
 export interface UsageSnapshot {
   total: TokenTotals
@@ -259,6 +285,8 @@ export interface UsageSnapshot {
   month: TokenTotals
   perProject: ProjectUsage[]
   perModel: { model: string; totals: TokenTotals }[]
+  /** Null when there is no activity in the current 5-hour window. */
+  projection: UsageProjection | null
   updatedAt: number
 }
 

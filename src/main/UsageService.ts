@@ -1,9 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
-import type { ProjectUsage, TokenTotals, UsageSnapshot } from '../shared/types'
+import type { ProjectUsage, TokenTotals, UsageProjection, UsageSnapshot } from '../shared/types'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+
+/** Length of one usage window, mirroring Claude's 5-hour rolling limit blocks. */
+const BLOCK_MS = 5 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
 
 /**
  * USD per million tokens, matched against the model id in transcript order.
@@ -73,6 +77,70 @@ function computeCost(entry: ParsedEntry): number {
       entry.cacheRead * price.input * 0.1) /
     1_000_000
   )
+}
+
+interface Block {
+  /** Hour-aligned block start, ms since epoch. */
+  start: number
+  firstAt: number
+  lastAt: number
+  tokens: number
+}
+
+/**
+ * Partition all entries into hour-aligned 5-hour blocks (a new block starts
+ * when an entry falls past the current block's end or after a ≥5h idle gap),
+ * then project when the current block's burn rate hits the largest block seen
+ * before it. Returns null when there is no activity in the current window.
+ */
+function computeProjection(
+  points: { at: number; tokens: number }[],
+  now: number
+): UsageProjection | null {
+  if (points.length === 0) return null
+  points.sort((a, b) => a.at - b.at)
+
+  const blocks: Block[] = []
+  let cur: Block | null = null
+  for (const p of points) {
+    if (!cur || p.at >= cur.start + BLOCK_MS || p.at - cur.lastAt >= BLOCK_MS) {
+      cur = { start: Math.floor(p.at / HOUR_MS) * HOUR_MS, firstAt: p.at, lastAt: p.at, tokens: 0 }
+      blocks.push(cur)
+    }
+    cur.lastAt = p.at
+    cur.tokens += p.tokens
+  }
+
+  const last = blocks[blocks.length - 1]
+  if (now < last.start || now >= last.start + BLOCK_MS) return null
+  const blockEndAt = last.start + BLOCK_MS
+
+  let maxBlockTokens = 0
+  for (const b of blocks) {
+    if (b !== last && b.tokens > maxBlockTokens) maxBlockTokens = b.tokens
+  }
+
+  const elapsedMin = Math.max(1, (now - last.firstAt) / 60_000)
+  const tokensPerMin = last.tokens / elapsedMin
+
+  let runsOutAt: number | null = null
+  if (maxBlockTokens > 0) {
+    if (last.tokens >= maxBlockTokens) {
+      runsOutAt = now
+    } else if (tokensPerMin > 0) {
+      const eta = now + ((maxBlockTokens - last.tokens) / tokensPerMin) * 60_000
+      if (eta < blockEndAt) runsOutAt = eta
+    }
+  }
+
+  return {
+    blockStartAt: last.start,
+    blockEndAt,
+    blockTokens: last.tokens,
+    maxBlockTokens,
+    tokensPerMin,
+    runsOutAt
+  }
 }
 
 /** Parse one transcript .jsonl, keeping only assistant entries that carry usage. */
@@ -149,6 +217,7 @@ export class UsageService {
     const perProject: ProjectUsage[] = []
     const seen = new Set<string>()
     const liveFiles = new Set<string>()
+    const points: { at: number; tokens: number }[] = []
 
     let projectDirs: string[] = []
     try {
@@ -177,6 +246,13 @@ export class UsageService {
         for (const entry of this.entriesFor(path)) {
           if (seen.has(entry.key)) continue
           seen.add(entry.key)
+          if (entry.at > 0) {
+            points.push({
+              at: entry.at,
+              tokens:
+                entry.input + entry.output + entry.cacheWrite5m + entry.cacheWrite1h + entry.cacheRead
+            })
+          }
           add(total, entry)
           add(project.total, entry)
           if (entry.day === today) {
@@ -207,6 +283,7 @@ export class UsageService {
       perModel: [...perModel.entries()]
         .map(([model, totals]) => ({ model, totals }))
         .sort((a, b) => b.totals.costUSD - a.totals.costUSD),
+      projection: computeProjection(points, now),
       updatedAt: now
     }
   }

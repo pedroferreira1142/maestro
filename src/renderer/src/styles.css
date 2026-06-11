@@ -222,12 +222,12 @@ body {
 
 .usage-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 12px;
-  white-space: nowrap;
 }
 
 .usage-bar:hover {
@@ -245,14 +245,30 @@ body {
 
 .usage-dim {
   color: var(--dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .usage-chevron {
   margin-left: auto;
   color: var(--dim);
   font-size: 10px;
+}
+
+/* Full-width second line of the collapsed bar with the burn-rate verdict. */
+.usage-runout {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.usage-warn {
+  color: var(--attention);
+}
+
+.usage-window {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
 }
 
 .usage-panel {
@@ -335,9 +351,7 @@ body {
 .usage-row-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   display: flex;
   align-items: center;
   gap: 5px;
