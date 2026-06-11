@@ -152,6 +152,12 @@ export interface MergeResult {
   nothingToMerge?: boolean
   /** True when uncommitted task changes were committed as part of the merge. */
   autoCommitted?: boolean
+  /**
+   * Post-merge push of the base branch to its upstream: true = pushed,
+   * false = push failed (the merge itself still succeeded), undefined = base
+   * branch has no upstream, so there was nothing to push to.
+   */
+  pushed?: boolean
   /** Combined git stdout+stderr, surfaced to the user. */
   output: string
 }

@@ -338,7 +338,29 @@ export class SessionManager {
     }
 
     const result = await Git.mergeBranch(baseFolder, branch, baseBranch)
-    return { ...result, autoCommitted }
+    if (!result.ok) return { ...result, autoCommitted }
+    return { ...(await this.pushAfterMerge(result, baseFolder, baseBranch)), autoCommitted }
+  }
+
+  /**
+   * Best-effort push of the base branch after a successful merge, so the merge
+   * shows up on the remote (GitHub) and not just locally. A push failure never
+   * fails the merge — it's reported via `pushed:false` + appended output.
+   * Skipped (pushed stays undefined) when the base branch has no upstream.
+   */
+  private async pushAfterMerge(
+    merge: MergeResult,
+    baseFolder: string,
+    baseBranch: string
+  ): Promise<MergeResult> {
+    const push = await Git.pushBranch(baseFolder, baseBranch)
+    if (!push) return merge // no upstream — purely local repo, nothing to push to
+    if (push.ok) return { ...merge, pushed: true }
+    return {
+      ...merge,
+      pushed: false,
+      output: `${merge.output}\n\nPush to upstream failed:\n${push.output}`.trim()
+    }
   }
 
   /**
@@ -356,7 +378,9 @@ export class SessionManager {
     if (!(await Git.branchExists(baseFolder, branch))) {
       return { ok: false, conflict: false, output: `Branch "${branch}" no longer exists.` }
     }
-    return Git.startMergeLeaveConflicts(baseFolder, branch, baseBranch)
+    const result = await Git.startMergeLeaveConflicts(baseFolder, branch, baseBranch)
+    if (!result.ok) return result
+    return this.pushAfterMerge(result, baseFolder, baseBranch)
   }
 
   /**
