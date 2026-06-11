@@ -492,6 +492,69 @@ body {
   font-size: 11px;
 }
 
+/* ---------- reusable actions (below the file tree) ---------- */
+
+.actions {
+  border-top: 1px solid var(--border);
+  max-height: 180px;
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 0 12px;
+}
+
+.actions-header span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.actions-empty {
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 12px;
+  cursor: pointer;
+}
+
+.action-row:hover {
+  background: var(--panel-2);
+}
+
+.action-run {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.action-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-row .action-edit {
+  visibility: hidden;
+}
+
+.action-row:hover .action-edit {
+  visibility: visible;
+}
+
 /* ---------- attached-image history (below the file tree) ---------- */
 
 .attachments {

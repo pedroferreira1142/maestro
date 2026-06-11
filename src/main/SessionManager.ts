@@ -5,6 +5,8 @@ import { existsSync, rmSync } from 'fs'
 import {
   MergeResult,
   RepoCategory,
+  ReusableAction,
+  RunActionResult,
   SessionConfig,
   SessionInfo,
   SessionStatus,
@@ -29,6 +31,9 @@ const INITIAL_PROMPT_DELAY_MS = 3500
 
 /** How long to wait for killed PTY processes to release their cwd (Windows file locks). */
 const PTY_EXIT_WAIT_MS = 4000
+
+/** How long to wait for a freshly spawned shell to finish booting before typing an action's command. */
+const ACTION_SHELL_READY_MS = 1200
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -462,6 +467,69 @@ export class SessionManager {
     this.state.categories = categories
     this.persistence.scheduleSave()
     this.notifyChanged()
+  }
+
+  get actions(): ReusableAction[] {
+    return this.state.actions
+  }
+
+  /** Replace the saved reusable actions (the renderer edits the full list). */
+  saveActions(actions: ReusableAction[]): void {
+    this.state.actions = actions
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+  }
+
+  /**
+   * Run a reusable action in a session: type its command into the action's
+   * terminal tab, creating or re-spawning that tab first when needed. Each
+   * action owns at most one tab per session (matched by `actionId`), so
+   * re-triggering reuses the same terminal instead of piling up tabs.
+   */
+  runAction(sessionId: string, actionId: string): RunActionResult | null {
+    const config = this.getConfig(sessionId)
+    const action = this.state.actions.find((a) => a.id === actionId)
+    const command = action?.command.trim()
+    if (!config || !action || !command) return null
+
+    let terminal = config.terminals.find((t) => t.actionId === action.id)
+    let respawned = false
+    if (terminal) {
+      terminal.title = action.name // follow action renames
+      const pty = this.ptys.get(terminal.id)
+      if (terminal.kind !== action.shell) {
+        // The action's shell changed since this tab was created — replace it.
+        pty?.kill()
+        terminal.kind = action.shell
+        this.spawnTerminal(config, terminal, 'fresh')
+        respawned = true
+      } else if (!pty?.alive) {
+        this.spawnTerminal(config, terminal, 'fresh')
+        respawned = true
+      }
+    } else {
+      terminal = {
+        id: randomUUID(),
+        kind: action.shell,
+        title: action.name,
+        order: Math.max(0, ...config.terminals.map((t) => t.order + 1)),
+        actionId: action.id
+      }
+      config.terminals.push(terminal)
+      this.spawnTerminal(config, terminal, 'fresh')
+      respawned = true
+    }
+    config.activeTerminalId = terminal.id
+    this.persistence.scheduleSave()
+
+    // \r submits the command; a fresh shell gets a beat to finish its startup
+    // (PTY input is buffered, but init scripts can redraw over early echo).
+    const terminalId = terminal.id
+    const delay = respawned ? ACTION_SHELL_READY_MS : 0
+    setTimeout(() => this.ptys.get(terminalId)?.write(command + '\r'), delay)
+
+    this.notifyChanged()
+    return { terminalId, respawned }
   }
 
   updateTerminal(terminalId: string, patch: Partial<TerminalConfig>): void {

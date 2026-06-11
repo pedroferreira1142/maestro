@@ -10,7 +10,8 @@ const DEFAULT_STATE: AppStateFile = {
   activeSessionId: null,
   window: { x: null, y: null, width: 1400, height: 900, maximized: false },
   settings: DEFAULT_SETTINGS,
-  categories: DEFAULT_CATEGORIES
+  categories: DEFAULT_CATEGORIES,
+  actions: []
 }
 
 /**
@@ -72,6 +73,7 @@ export class Persistence {
         window: { ...DEFAULT_STATE.window, ...(raw.window ?? {}) },
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         categories: Array.isArray(raw.categories) ? raw.categories : DEFAULT_CATEGORIES,
+        actions: Array.isArray(raw.actions) ? raw.actions : [],
         sessions: Array.isArray(raw.sessions) ? raw.sessions.map(migrateSession) : []
       }
     } catch {
