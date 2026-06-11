@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ProjectUsage, TokenTotals, UsageSnapshot } from '../../../shared/types'
+import type { ProjectUsage, TokenTotals, UsageProjection, UsageSnapshot } from '../../../shared/types'
 import { useStore } from '../store'
 
 const POLL_MS = 60_000
@@ -26,6 +26,36 @@ function fmtTokens(v: number): string {
 
 function totalTokens(t: TokenTotals): number {
   return t.inputTokens + t.outputTokens + t.cacheWriteTokens + t.cacheReadTokens
+}
+
+function fmtDur(ms: number): string {
+  const mins = Math.max(0, Math.round(ms / 60_000))
+  if (mins < 1) return 'less than a minute'
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (h === 0) return `${m}m`
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+function fmtClock(at: number): string {
+  const d = new Date(at)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** One-line burn-rate verdict for the current 5h window. */
+function runOutLabel(p: UsageProjection, now: number): { text: string; warn: boolean } {
+  if (p.runsOutAt != null) {
+    const left = p.runsOutAt - now
+    if (left <= 0) return { text: 'token limit reached — window resets in ' + fmtDur(p.blockEndAt - now), warn: true }
+    return { text: `at this rate you run out of tokens in ${fmtDur(left)}`, warn: true }
+  }
+  if (p.maxBlockTokens > 0) {
+    return { text: `on pace until the window resets (${fmtDur(p.blockEndAt - now)} left)`, warn: false }
+  }
+  return {
+    text: `burning ${fmtTokens(Math.round(p.tokensPerMin))} tok/min · window resets in ${fmtDur(p.blockEndAt - now)}`,
+    warn: false
+  }
 }
 
 /** Strip the encoded drive prefix ('C--repos-foo' -> 'repos-foo') for unmatched dirs. */
@@ -89,6 +119,9 @@ export function UsageWidget(): JSX.Element {
   })
   // Open sessions first, then by all-time cost (perProject is already cost-sorted).
   rows.sort((a, b) => Number(b.isSession) - Number(a.isSession) || b.total.costUSD - a.total.costUSD)
+  const now = Date.now()
+  const proj = snap.projection
+  const runOut = proj ? runOutLabel(proj, now) : null
   const shown = rows.slice(0, MAX_ROWS)
   const rest = rows.slice(MAX_ROWS)
   const restTotal = rest.reduce((sum, r) => sum + r.total.costUSD, 0)
@@ -119,6 +152,28 @@ export function UsageWidget(): JSX.Element {
             <span>cache w {fmtTokens(snap.total.cacheWriteTokens)}</span>
             <span>cache r {fmtTokens(snap.total.cacheReadTokens)}</span>
           </div>
+
+          {proj && runOut && (
+            <>
+              <div className="usage-section">current 5h window</div>
+              <div
+                className="usage-window"
+                title="Estimated from your transcripts: usage is grouped into 5-hour windows and the limit is your largest window so far"
+              >
+                <div>
+                  {fmtTokens(proj.blockTokens)} tokens used
+                  {proj.maxBlockTokens > 0 && (
+                    <> of ~{fmtTokens(proj.maxBlockTokens)} (largest window so far)</>
+                  )}
+                </div>
+                <div>
+                  burning {fmtTokens(Math.round(proj.tokensPerMin))} tok/min · window resets at{' '}
+                  {fmtClock(proj.blockEndAt)}
+                </div>
+                <div className={runOut.warn ? 'usage-warn' : undefined}>{runOut.text}</div>
+              </div>
+            </>
+          )}
 
           <div className="usage-section">per session</div>
           <div className="usage-rows">
@@ -170,6 +225,9 @@ export function UsageWidget(): JSX.Element {
         <span className="usage-today">{fmtCost(snap.today.costUSD)} today</span>
         <span className="usage-dim">· {fmtCost(snap.total.costUSD)} total</span>
         <span className="usage-chevron">{open ? '▾' : '▴'}</span>
+        {runOut && (
+          <span className={`usage-runout${runOut.warn ? ' usage-warn' : ''}`}>{runOut.text}</span>
+        )}
       </div>
     </div>
   )
