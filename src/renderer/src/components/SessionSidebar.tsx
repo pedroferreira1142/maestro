@@ -145,6 +145,7 @@ export function SessionSidebar(): JSX.Element {
   const newSession = useStore((s) => s.newSession)
   const openCategories = useStore((s) => s.openCategories)
   const openFeatures = useStore((s) => s.openFeatures)
+  const openBackgroundDialog = useStore((s) => s.openBackgroundDialog)
   const ordered = orderedSessions(sessions)
 
   return (
@@ -159,6 +160,9 @@ export function SessionSidebar(): JSX.Element {
             onClick={() => activeId && void openFeatures(activeId)}
           >
             ✦
+          </button>
+          <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
+            ◫
           </button>
           <button className="btn ghost" title="Manage repo categories" onClick={openCategories}>
             ⚙

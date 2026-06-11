@@ -486,6 +486,13 @@ export interface Settings {
   /** Directory/file basenames hidden from the explorer and excluded from watching. */
   ignoreNames: string[]
   notifyOnAttention: boolean
+  /**
+   * File name of the custom app background image (stored under
+   * userData/background/); null = no custom background.
+   */
+  backgroundImage: string | null
+  /** Opacity of the background image layer (0–1); panels stay readable above it. */
+  backgroundOpacity: number
 }
 
 export interface WindowBounds {
@@ -516,7 +523,9 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: '"Cascadia Mono", Consolas, monospace',
   fontSize: 14,
   ignoreNames: ['.git', 'node_modules', 'dist', 'build', 'out', '.venv', '__pycache__', 'target'],
-  notifyOnAttention: true
+  notifyOnAttention: true,
+  backgroundImage: null,
+  backgroundOpacity: 0.3
 }
 
 /**

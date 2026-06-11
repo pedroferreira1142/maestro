@@ -122,6 +122,10 @@ const api: Api = {
   },
   getUsage: () => ipcRenderer.invoke('usage:get'),
 
+  pickBackgroundImage: () => ipcRenderer.invoke('background:pick'),
+  getBackgroundImage: () => ipcRenderer.invoke('background:get'),
+  clearBackgroundImage: () => ipcRenderer.invoke('background:clear'),
+
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: (text) => ipcRenderer.send('clipboard:write', text),

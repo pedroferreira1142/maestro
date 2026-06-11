@@ -117,6 +117,10 @@ interface AppStore {
   featuresSessionId: string | null
   /** Features for the session whose dialog is open, oldest first. */
   features: Feature[]
+  /** The custom app background image as a data URL; null when none is set. */
+  backgroundDataUrl: string | null
+  /** Whether the background-image dialog is open. */
+  backgroundDialogOpen: boolean
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -189,6 +193,14 @@ interface AppStore {
   /** Attach a dropped file: by path when the OS provides one, else by content. */
   attachDroppedFile(sessionId: string, file: File): Promise<AttachmentInfo | null>
   deleteAttachment(sessionId: string, fileName: string): Promise<void>
+  openBackgroundDialog(): void
+  closeBackgroundDialog(): void
+  /** Pick a new background image; updates settings + the cached data URL. */
+  pickBackground(): Promise<void>
+  /** Remove the custom background image. */
+  clearBackground(): Promise<void>
+  /** Persist a new background image opacity (0–1). */
+  setBackgroundOpacity(opacity: number): Promise<void>
 }
 
 /** Default active tab for a session: its persisted active terminal, else first. */
@@ -217,13 +229,16 @@ export const useStore = create<AppStore>()((set, get) => ({
   gitNonce: 0,
   featuresSessionId: null,
   features: [],
+  backgroundDataUrl: null,
+  backgroundDialogOpen: false,
 
   async init() {
-    const [settings, savedActive] = await Promise.all([
+    const [settings, savedActive, backgroundDataUrl] = await Promise.all([
       window.api.getSettings(),
-      window.api.getActiveSession()
+      window.api.getActiveSession(),
+      window.api.getBackgroundImage()
     ])
-    set({ settings })
+    set({ settings, backgroundDataUrl })
     await Promise.all([get().loadCategoriesAndSkills(), get().loadActions()])
     await get().refresh()
     const { sessions } = get()
@@ -757,6 +772,36 @@ export const useStore = create<AppStore>()((set, get) => ({
   async deleteAttachment(sessionId, fileName) {
     await window.api.deleteAttachment(sessionId, fileName)
     await get().loadAttachments(sessionId)
+  },
+
+  openBackgroundDialog() {
+    set({ backgroundDialogOpen: true })
+  },
+
+  closeBackgroundDialog() {
+    set({ backgroundDialogOpen: false })
+  },
+
+  async pickBackground() {
+    const dataUrl = await window.api.pickBackgroundImage()
+    if (!dataUrl) return // cancelled or not an image
+    // Main already persisted settings.backgroundImage; refresh our copy so
+    // terminals/UI react (the file name itself doesn't matter to the renderer).
+    const settings = await window.api.getSettings()
+    set({ backgroundDataUrl: dataUrl, settings })
+  },
+
+  async clearBackground() {
+    await window.api.clearBackgroundImage()
+    const settings = await window.api.getSettings()
+    set({ backgroundDataUrl: null, settings })
+  },
+
+  async setBackgroundOpacity(opacity) {
+    const settings = get().settings
+    if (!settings) return
+    set({ settings: { ...settings, backgroundOpacity: opacity } })
+    await window.api.setSettings({ backgroundOpacity: opacity })
   },
 
   applyFsEvents(id, events) {
