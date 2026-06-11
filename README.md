@@ -109,3 +109,9 @@ conversation.
 - **Renderer** (`src/renderer/`): React + zustand. One persistent xterm.js instance per
   session (hidden, never unmounted ⇒ instant switching), lazy file tree with live updates and
   changed-file flashes, CodeMirror 6 read-only viewer with auto language detection.
+
+## Acknowledgements
+
+This wouldn't have been possible without the help of
+[Tim Pieters](https://www.linkedin.com/in/tim-pieters/) and
+[Sven De Pickere](https://www.linkedin.com/in/svendepickere/).
