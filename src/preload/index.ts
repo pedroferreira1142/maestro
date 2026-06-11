@@ -4,6 +4,7 @@ import type {
   FsEvent,
   RepoCategory,
   ReusableAction,
+  SentinelRun,
   SessionConfig,
   SessionStatus,
   Settings,
@@ -56,6 +57,11 @@ const api: Api = {
   ptyAttach: (terminalId) => ipcRenderer.invoke('pty:attach', terminalId),
   onPtyData: (cb) =>
     subscribe('pty:data', (id, data) => cb(id as string, data as string)),
+
+  listSentinelRuns: (sessionId) => ipcRenderer.invoke('sentinel:runs', sessionId),
+  runSentinel: (sessionId, sentinelId) => ipcRenderer.invoke('sentinel:run', sessionId, sentinelId),
+  onSentinelRuns: (cb) =>
+    subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
 
   listActions: () => ipcRenderer.invoke('actions:list'),
   saveActions: (actions: ReusableAction[]) => ipcRenderer.invoke('actions:save', actions),

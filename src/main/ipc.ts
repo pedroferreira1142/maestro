@@ -21,6 +21,7 @@ import {
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
+import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
 import { UsageService } from './UsageService'
 
@@ -37,6 +38,7 @@ export function registerIpc(
   sessions: SessionManager,
   fs: FsService,
   persistence: Persistence,
+  sentinels: SentinelService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -104,6 +106,12 @@ export function registerIpc(
   ipcMain.handle('claude:listMcpServers', () => readUserMcpServers())
   ipcMain.handle('category:detect', (_e, folder: string) =>
     detectCategory(folder, sessions.categories)
+  )
+
+  // --- sentinels (background watcher agents) ---
+  ipcMain.handle('sentinel:runs', (_e, sessionId: string) => sentinels.listRuns(sessionId))
+  ipcMain.handle('sentinel:run', (_e, sessionId: string, sentinelId: string) =>
+    sentinels.runNow(sessionId, sentinelId)
   )
 
   // --- reusable actions (saved shell commands) ---
