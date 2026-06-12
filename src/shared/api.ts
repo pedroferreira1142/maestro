@@ -125,6 +125,8 @@ export interface Api {
   // features & specs (per-session feature plans, implemented via worktree tasks)
   /** Features for one session, oldest first. */
   listFeatures(sessionId: string): Promise<Feature[]>
+  /** The feature a worktree task session implements, or null when not tied to one. */
+  featureForTask(sessionId: string): Promise<Feature | null>
   /** Create or update one feature (upsert by id). */
   saveFeature(feature: Feature): Promise<void>
   deleteFeature(id: string): Promise<void>

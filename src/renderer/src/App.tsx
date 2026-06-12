@@ -6,6 +6,7 @@ import { BroadcastDialog } from './components/BroadcastDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
 import { DiffViewer } from './components/DiffViewer'
+import { FeatureRail } from './components/FeatureRail'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { GlobalSearchDialog } from './components/GlobalSearchDialog'
@@ -191,6 +192,7 @@ export default function App(): JSX.Element {
           </>
         )}
       </div>
+      <FeatureRail />
       {pendingNewSession && <NewSessionDialog />}
       {pendingWorktree && <WorktreeTaskDialog />}
       {categoriesOpen && <CategoriesDialog />}

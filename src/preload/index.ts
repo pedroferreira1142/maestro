@@ -79,6 +79,7 @@ const api: Api = {
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
 
   listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
+  featureForTask: (sessionId) => ipcRenderer.invoke('feature:forTask', sessionId),
   saveFeature: (feature: Feature) => ipcRenderer.invoke('feature:save', feature),
   deleteFeature: (id) => ipcRenderer.invoke('feature:delete', id),
   implementFeature: (id) => ipcRenderer.invoke('feature:implement', id),
