@@ -611,7 +611,8 @@ export const useStore = create<AppStore>()((set, get) => ({
         claudeTerm.config.id,
         `We are merging the parallel-task branch "${wt.branch}" into "${wt.baseBranch}" and git ` +
           `stopped on merge conflicts in this repo. Resolve all conflicts (see git status), ` +
-          `preserving the intent of both sides, then stage everything and complete the merge commit.`
+          `preserving the intent of both sides, then stage everything and complete the merge commit. ` +
+          `Finally, push "${wt.baseBranch}" to its remote (git push) so the result lands on GitHub.`
       )
       return
     }

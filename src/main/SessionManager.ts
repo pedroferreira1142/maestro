@@ -450,19 +450,32 @@ export class SessionManager {
     return { ...(await this.pushAfterMerge(result, baseFolder, baseBranch)), autoCommitted }
   }
 
+  /** True if `branch` is the dedicated expansion branch of any auto-expand config. */
+  private isAutoExpandBranch(branch: string): boolean {
+    return this.state.sessions.some((s) => s.autoExpand?.branch === branch)
+  }
+
   /**
    * Best-effort push of the base branch after a successful merge, so the merge
    * shows up on the remote (GitHub) and not just locally. A push failure never
    * fails the merge — it's reported via `pushed:false` + appended output.
-   * Skipped (pushed stays undefined) when the base branch has no upstream.
+   *
+   * Ordinary branches are only pushed when they already have an upstream
+   * (Maestro never publishes branches the user hasn't pushed). An auto-expansion
+   * branch is the exception: the user opted into "commit to the expansion branch
+   * and push to GitHub", so if it has no upstream yet we publish it (push -u).
    */
   private async pushAfterMerge(
     merge: MergeResult,
     baseFolder: string,
     baseBranch: string
   ): Promise<MergeResult> {
-    const push = await Git.pushBranch(baseFolder, baseBranch)
-    if (!push) return merge // no upstream — purely local repo, nothing to push to
+    let push = await Git.pushBranch(baseFolder, baseBranch)
+    if (!push && this.isAutoExpandBranch(baseBranch)) {
+      // No upstream, but this is an expansion branch — publish it to the remote.
+      push = await Git.publishBranch(baseFolder, baseBranch)
+    }
+    if (!push) return merge // no upstream / no remote — nothing to push to
     if (push.ok) return { ...merge, pushed: true }
     return {
       ...merge,
