@@ -114,6 +114,13 @@ export interface TerminalConfig {
 }
 
 /**
+ * How a worktree task lands its work into the base branch:
+ * 'merge' — merge the task branch directly into base (the default).
+ * 'pr'    — push the branch and open a pull request for review instead.
+ */
+export type WorktreeCompletion = 'merge' | 'pr'
+
+/**
  * Marks a session as a parallel task running in a git worktree spun off from
  * another session's repo. Present only on worktree sessions; absent/null on
  * ordinary sessions.
@@ -127,6 +134,20 @@ export interface WorktreeMeta {
   baseBranch: string
   /** Absolute path of the main repo working tree (where the merge runs). */
   baseFolder: string
+  /** How the task lands: direct merge (default) or a PR for review. Absent = 'merge'. */
+  completion?: WorktreeCompletion
+  /**
+   * When true, Maestro performs the completion action (merge or PR) automatically
+   * once claude finishes — it commits pending work and runs `completion` without a
+   * manual click. Absent/false = the user triggers completion from the sidebar.
+   */
+  autoComplete?: boolean
+  /**
+   * Set once auto-complete has run for this task, so it fires at most once. The
+   * value is the kind of completion performed ('merge'|'pr'); absent = not yet
+   * auto-completed. Manual completion never sets this.
+   */
+  autoCompletedAs?: WorktreeCompletion
 }
 
 /** One prompt waiting in a session's queue, auto-sent when claude sits idle. */
@@ -444,6 +465,13 @@ export interface Feature {
   taskSessionId?: string | null
   /** True when the feature was created by the auto-expand pipeline. */
   auto?: boolean
+  /**
+   * How the implementing worktree task should land its work; carried into the
+   * task's WorktreeMeta at Implement time. Absent = direct merge.
+   */
+  completion?: WorktreeCompletion
+  /** When true, the implementing task auto-completes once claude finishes. */
+  autoComplete?: boolean
   createdAt: number
 }
 
@@ -473,6 +501,46 @@ export interface MergeResult {
    */
   pushed?: boolean
   /** Combined git stdout+stderr, surfaced to the user. */
+  output: string
+}
+
+/**
+ * Outcome of opening a pull request for a worktree task branch (via the `gh`
+ * CLI). The branch is pushed first; the PR targets the task's base branch.
+ */
+export interface PullRequestResult {
+  ok: boolean
+  /** URL of the created (or already-existing) PR, when `gh` reported one. */
+  url?: string
+  /** True when a PR for this branch already existed — `url` points at it. */
+  alreadyExists?: boolean
+  /** True when the task branch had no commits beyond base — nothing to PR. */
+  nothingToMerge?: boolean
+  /** True when uncommitted task changes were committed before pushing. */
+  autoCommitted?: boolean
+  /** Combined gh/git stdout+stderr, surfaced to the user. */
+  output: string
+}
+
+/**
+ * Outcome of an automatic worktree completion (auto-merge or auto-PR), pushed
+ * to the renderer so it can show a notice without the user having clicked.
+ */
+export interface WorktreeAutoCompleteEvent {
+  /** Which action ran. */
+  kind: WorktreeCompletion
+  /** Task display name, for the message. */
+  name: string
+  /** Task branch that was completed. */
+  branch: string
+  /** Base branch it targeted. */
+  baseBranch: string
+  ok: boolean
+  /** PR mode: URL of the opened PR, when known. */
+  url?: string
+  /** True when auto-merge stopped because the merge would conflict. */
+  conflict?: boolean
+  /** Human-readable detail (git/gh output or a short summary). */
   output: string
 }
 

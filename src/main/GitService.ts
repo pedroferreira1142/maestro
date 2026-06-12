@@ -7,6 +7,7 @@ import type {
   GitFileDiff,
   GitStatus,
   MergeResult,
+  PullRequestResult,
   WorktreeInfo
 } from '../shared/types'
 
@@ -409,6 +410,107 @@ export async function pushBranch(
   if (!remote) return null
   const res = await git(folder, ['push', remote, branch])
   return { ok: res.code === 0, output: res.output }
+}
+
+/**
+ * Run a `gh` (GitHub CLI) command in `cwd`. Never rejects on a non-zero exit —
+ * callers inspect `code`/`output`. Rejects only if `gh` itself isn't installed,
+ * with a message the UI can surface verbatim.
+ */
+function gh(cwd: string, args: string[]): Promise<GitResult> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'gh',
+      args,
+      { cwd, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+          reject(
+            new Error(
+              'The GitHub CLI (`gh`) was not found on PATH. Install it from https://cli.github.com ' +
+                'and run `gh auth login` to open pull requests from Maestro.'
+            )
+          )
+          return
+        }
+        const code = err ? ((err as { code?: number }).code ?? 1) : 0
+        resolve({ code, stdout, stderr, output: `${stdout}${stderr}`.trim() })
+      }
+    )
+  })
+}
+
+/** The last non-empty line of text — `gh pr create`/`view` print the PR URL there. */
+function lastLine(text: string): string {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  return lines.length ? lines[lines.length - 1] : ''
+}
+
+/** Pull a github.com PR URL out of arbitrary gh output, or '' when absent. */
+function extractPrUrl(text: string): string {
+  const m = text.match(/https:\/\/github\.com\/\S+\/pull\/\d+/)
+  return m ? m[0] : ''
+}
+
+/**
+ * Open a pull request for `branch` against `baseBranch` using the `gh` CLI.
+ * Pushes the branch to its remote first (so the head exists on the host), then
+ * `gh pr create`. If a PR for the branch already exists, returns its URL with
+ * `alreadyExists:true` instead of failing. Rejects only when `gh` isn't
+ * installed; every other failure comes back as `ok:false` with git/gh output.
+ */
+export async function createPullRequest(
+  folder: string,
+  branch: string,
+  baseBranch: string,
+  title: string,
+  body: string
+): Promise<PullRequestResult> {
+  const remote = await defaultRemote(folder)
+  if (!remote) {
+    return {
+      ok: false,
+      output:
+        'This repository has no git remote, so there is nowhere to open a pull request. ' +
+        'Add a GitHub remote (e.g. `git remote add origin <url>`) first.'
+    }
+  }
+
+  // Publish the head branch (push -u). A PR needs the branch on the remote; this
+  // also works for a branch that has never been pushed.
+  const push = await git(folder, ['push', '-u', remote, branch])
+  if (push.code !== 0) {
+    return { ok: false, output: `Pushing "${branch}" to ${remote} failed:\n${push.output}` }
+  }
+
+  const res = await gh(folder, [
+    'pr',
+    'create',
+    '--base',
+    baseBranch,
+    '--head',
+    branch,
+    '--title',
+    title,
+    '--body',
+    body
+  ])
+  if (res.code === 0) {
+    return { ok: true, url: extractPrUrl(res.stdout) || lastLine(res.stdout), output: res.output }
+  }
+
+  // gh fails when a PR for this head already exists — fetch and report its URL.
+  if (/already exists/i.test(res.output)) {
+    const view = await gh(folder, ['pr', 'view', branch, '--json', 'url', '--jq', '.url'])
+    const url = view.code === 0 ? extractPrUrl(view.stdout) || lastLine(view.stdout) : ''
+    return {
+      ok: true,
+      alreadyExists: true,
+      url: url || undefined,
+      output: url ? `A pull request already exists for "${branch}":\n${url}` : res.output
+    }
+  }
+  return { ok: false, output: `gh pr create failed:\n${res.output}` }
 }
 
 /** The remote to publish to: 'origin' if present, else the first remote, else null. */

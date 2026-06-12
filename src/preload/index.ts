@@ -10,7 +10,8 @@ import type {
   SessionConfig,
   SessionStatus,
   Settings,
-  TerminalConfig
+  TerminalConfig,
+  WorktreeAutoCompleteEvent
 } from '../shared/types'
 
 function subscribe(
@@ -41,8 +42,14 @@ const api: Api = {
   mergeWorktree: (sessionId, commitFirst) =>
     ipcRenderer.invoke('worktree:merge', sessionId, commitFirst),
   startConflictedMerge: (sessionId) => ipcRenderer.invoke('worktree:mergeResolve', sessionId),
+  createWorktreePr: (sessionId, commitFirst) =>
+    ipcRenderer.invoke('worktree:createPr', sessionId, commitFirst),
   removeWorktree: (sessionId, deleteBranch) =>
     ipcRenderer.invoke('worktree:remove', sessionId, deleteBranch),
+  onWorktreeAutoCompleted: (cb) =>
+    subscribe('worktree:autocompleted', (id, result) =>
+      cb(id as string, result as WorktreeAutoCompleteEvent)
+    ),
 
   gitStatus: (sessionId) => ipcRenderer.invoke('git:status', sessionId),
   gitLog: (sessionId, limit) => ipcRenderer.invoke('git:log', sessionId, limit),

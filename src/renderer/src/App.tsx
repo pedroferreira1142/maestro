@@ -64,6 +64,9 @@ export default function App(): JSX.Element {
       }),
       window.api.onSentinelRuns((id, runs) => useStore.getState().applySentinelRuns(id, runs)),
       window.api.onAutoExpandRuns((id, runs) => useStore.getState().applyAutoExpandRuns(id, runs)),
+      window.api.onWorktreeAutoCompleted((id, result) =>
+        useStore.getState().applyWorktreeAutoCompleted(id, result)
+      ),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)

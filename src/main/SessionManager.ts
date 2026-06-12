@@ -8,6 +8,7 @@ import {
   GitFileDiff,
   GitStatus,
   MergeResult,
+  PullRequestResult,
   RepoCategory,
   ReusableAction,
   RunActionResult,
@@ -18,6 +19,7 @@ import {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  WorktreeAutoCompleteEvent,
   WorktreeInfo,
   WorktreeTaskState
 } from '../shared/types'
@@ -61,6 +63,15 @@ const CLAUDE_SUBMIT_DELAY_MS = 300
 const QUEUE_IDLE_DELAY_MS = 3000
 
 /**
+ * How long a worktree task's claude must sit continuously idle before
+ * auto-complete (auto-merge / auto-PR) fires. Much longer than the prompt-queue
+ * delay: 'idle' only weakly implies 'finished', so we wait out brief pauses and
+ * re-check on fire (still idle, real work present) before acting. The countdown
+ * restarts on every idle transition.
+ */
+const AUTO_COMPLETE_IDLE_DELAY_MS = 90_000
+
+/**
  * Printed between replayed scrollback and the live process output on restore.
  * The leading reset guards against history ending mid-attribute; dim (SGR 2)
  * keeps the row visually quiet.
@@ -81,6 +92,19 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** Title for an auto/assisted PR — the task name, falling back to the branch. */
+function prTitle(name: string, branch: string): string {
+  return (name?.trim() || branch).slice(0, 120)
+}
+
+/** Body for a Maestro-opened PR: states its origin so reviewers have context. */
+function prBody(name: string, branch: string, baseBranch: string): string {
+  return (
+    `Opened by Maestro from the parallel task **${name?.trim() || branch}**.\n\n` +
+    `Merges \`${branch}\` into \`${baseBranch}\`.`
+  )
+}
+
 /** Sidebar aggregate order — earliest wins across a session's terminals. */
 const STATUS_PRIORITY: SessionStatus[] = [
   'needs-attention',
@@ -98,6 +122,16 @@ export class SessionManager {
 
   /** Pending prompt-queue idle countdowns, keyed by session id. */
   private queueTimers = new Map<string, NodeJS.Timeout>()
+
+  /** Worktree task session ids whose claude has been observed working at least
+   *  once — the gate that stops auto-complete firing on the boot-time idle. */
+  private worktreeWorked = new Set<string>()
+
+  /** Pending auto-complete idle countdowns, keyed by worktree session id. */
+  private autoCompleteTimers = new Map<string, NodeJS.Timeout>()
+
+  /** Worktree session ids with an auto-complete action in flight (fires once). */
+  private autoCompleteInFlight = new Set<string>()
 
   /** On-disk tail of each terminal's output, replayed on app restart. */
   private scrollback = new ScrollbackStore()
@@ -335,7 +369,16 @@ export class SessionManager {
       activeTerminalId: claudeTerminal.id,
       expandedPaths: [],
       categoryId: parent.categoryId ?? null,
-      worktree: { parentSessionId, branch, baseBranch, baseFolder: repoRoot }
+      worktree: {
+        parentSessionId,
+        branch,
+        baseBranch,
+        baseFolder: repoRoot,
+        // Default to direct merge; only persist a PR/auto choice when set, so
+        // existing tasks and the common case stay exactly as before.
+        ...(opts.completion && opts.completion !== 'merge' ? { completion: opts.completion } : {}),
+        ...(opts.autoComplete ? { autoComplete: true } : {})
+      }
     }
     this.state.sessions.push(config)
     this.persistence.scheduleSave()
@@ -506,6 +549,153 @@ export class SessionManager {
   }
 
   /**
+   * Open a pull request for a worktree task's branch against its base (the PR
+   * alternative to mergeWorktree). Like merge, `commitFirst` first commits any
+   * uncommitted task work to the branch — Claude doesn't commit on its own — so
+   * the PR isn't missing changes. Pushes the branch, then `gh pr create`.
+   */
+  async createWorktreePr(sessionId: string, commitFirst: boolean): Promise<PullRequestResult> {
+    const config = this.getConfig(sessionId)
+    if (!config?.worktree) {
+      return { ok: false, output: 'Not a worktree task session.' }
+    }
+    const { baseFolder, branch, baseBranch } = config.worktree
+    if (!existsSync(config.folder)) {
+      return { ok: false, output: 'The worktree folder no longer exists — remove this task instead.' }
+    }
+    if (!(await Git.branchExists(baseFolder, branch))) {
+      return {
+        ok: false,
+        output:
+          `The task branch "${branch}" no longer exists in the repo.\n\n` +
+          `Commit your work on "${branch}" inside this task's folder, or remove the task.`
+      }
+    }
+
+    let autoCommitted = false
+    if (commitFirst && ((await Git.dirtyCount(config.folder)) ?? 0) > 0) {
+      const commit = await Git.commitAll(config.folder, `${config.name} (Maestro task)`)
+      if (commit.code !== 0) {
+        return { ok: false, output: `Commit failed:\n${commit.output}` }
+      }
+      autoCommitted = true
+    }
+
+    const ahead = await Git.aheadCount(baseFolder, baseBranch, branch)
+    if (ahead === 0) {
+      return {
+        ok: false,
+        nothingToMerge: true,
+        autoCommitted,
+        output: `Branch "${branch}" has no commits beyond "${baseBranch}" — nothing to open a PR for.`
+      }
+    }
+
+    // The PR is pushed/created from the task's own worktree folder, where the
+    // task branch is checked out (the base repo has baseBranch checked out).
+    const title = prTitle(config.name, branch)
+    const body = prBody(config.name, branch, baseBranch)
+    const result = await Git.createPullRequest(config.folder, branch, baseBranch, title, body)
+    return { ...result, autoCommitted }
+  }
+
+  // ---------- auto-complete (auto-merge / auto-PR when claude finishes) --------
+
+  /**
+   * (Re)start the auto-complete idle countdown for a worktree task whose claude
+   * just went idle. Only arms once the task's claude has actually worked (so the
+   * boot-time idle never counts), and never while a prompt queue is still
+   * draining or an action is already in flight / done. The fire handler
+   * re-checks everything, so a terminal that wakes mid-countdown is safe.
+   */
+  private scheduleAutoComplete(sessionId: string): void {
+    const config = this.getConfig(sessionId)
+    const wt = config?.worktree
+    if (!config || !wt?.autoComplete || wt.autoCompletedAs) return
+    if (!this.worktreeWorked.has(sessionId)) return // claude hasn't worked yet
+    if (this.autoCompleteInFlight.has(sessionId)) return
+    if (config.promptQueue?.length) return // let the queue finish feeding claude first
+    const existing = this.autoCompleteTimers.get(sessionId)
+    if (existing) clearTimeout(existing)
+    this.autoCompleteTimers.set(
+      sessionId,
+      setTimeout(() => {
+        this.autoCompleteTimers.delete(sessionId)
+        void this.fireAutoComplete(sessionId)
+      }, AUTO_COMPLETE_IDLE_DELAY_MS)
+    )
+  }
+
+  private clearAutoCompleteTimer(sessionId: string): void {
+    const timer = this.autoCompleteTimers.get(sessionId)
+    if (timer) clearTimeout(timer)
+    this.autoCompleteTimers.delete(sessionId)
+  }
+
+  /**
+   * Run a task's chosen completion automatically. Re-checks the gates that may
+   * have changed during the countdown (still a worktree task, claude alive and
+   * idle, queue empty, real work present, not already completed), commits
+   * pending work, then merges or opens a PR per `completion`. Marks the task
+   * auto-completed so it never fires twice, and broadcasts the outcome.
+   */
+  private async fireAutoComplete(sessionId: string): Promise<void> {
+    const config = this.getConfig(sessionId)
+    const wt = config?.worktree
+    if (!config || !wt?.autoComplete || wt.autoCompletedAs) return
+    if (this.autoCompleteInFlight.has(sessionId)) return
+    if (config.promptQueue?.length) return
+
+    const terminal = this.claudeTargetTerminal(config)
+    const pty = terminal ? this.ptys.get(terminal.id) : null
+    if (!pty?.alive || pty.detector.current !== 'idle') return // woke up; wait for next idle
+
+    // Only act when there's actually work to land (committed or uncommitted).
+    const dirty = (await Git.dirtyCount(config.folder)) ?? 0
+    const ahead = (await Git.aheadCount(wt.baseFolder, wt.baseBranch, wt.branch)) ?? 0
+    if (dirty === 0 && ahead === 0) return // nothing yet — try again on the next idle
+
+    this.autoCompleteInFlight.add(sessionId)
+    const kind = wt.completion ?? 'merge'
+    try {
+      const event: WorktreeAutoCompleteEvent = {
+        kind,
+        name: config.name,
+        branch: wt.branch,
+        baseBranch: wt.baseBranch,
+        ok: false,
+        output: ''
+      }
+      if (kind === 'pr') {
+        const pr = await this.createWorktreePr(sessionId, true)
+        event.ok = pr.ok
+        event.url = pr.url
+        event.output = pr.output
+      } else {
+        const merge = await this.mergeWorktree(sessionId, true)
+        event.ok = merge.ok
+        event.conflict = merge.conflict
+        // Auto-merge never resolves conflicts unattended — leave that to the user.
+        event.output = merge.output
+      }
+
+      // Mark it done so it fires at most once, even if the action failed: a
+      // failed auto-merge (e.g. conflict) shouldn't silently retry every idle.
+      const fresh = this.getConfig(sessionId)
+      if (fresh?.worktree) {
+        fresh.worktree.autoCompletedAs = kind
+        this.persistence.scheduleSave()
+      }
+      this.getWin()?.webContents.send('worktree:autocompleted', sessionId, event)
+      this.notifyChanged()
+    } catch (err) {
+      console.error('auto-complete failed', err)
+    } finally {
+      this.autoCompleteInFlight.delete(sessionId)
+    }
+  }
+
+  /**
    * Close a worktree task, remove its git worktree, and optionally delete its
    * branch. Kills the task's terminals first and WAITS for them to exit —
    * Windows can't delete a folder that's still some process's cwd. Tolerates
@@ -573,6 +763,9 @@ export class SessionManager {
     }
 
     this.clearQueueTimer(sessionId)
+    this.clearAutoCompleteTimer(sessionId)
+    this.worktreeWorked.delete(sessionId)
+    this.autoCompleteInFlight.delete(sessionId)
     this.state.sessions = this.state.sessions.filter((s) => s.id !== sessionId)
     if (this.state.activeSessionId === sessionId) this.state.activeSessionId = null
     this.persistence.scheduleSave()
@@ -915,6 +1108,8 @@ export class SessionManager {
     this.scrollback.flushAll()
     for (const timer of this.queueTimers.values()) clearTimeout(timer)
     this.queueTimers.clear()
+    for (const timer of this.autoCompleteTimers.values()) clearTimeout(timer)
+    this.autoCompleteTimers.clear()
     for (const pty of this.ptys.values()) pty.kill()
     this.ptys.clear()
     this.fs.stopAll()
@@ -956,6 +1151,16 @@ export class SessionManager {
     // settled (done/idle) for QUEUE_IDLE_DELAY_MS (re-checked when the countdown
     // fires) before the oldest queued prompt is typed in.
     if (status === 'done' || status === 'idle') this.scheduleQueueDispatch(config.id)
+
+    // Auto-complete (auto-merge / auto-PR) rides the same idle transition but on
+    // a much longer countdown, and only for worktree tasks that opted in. Mark
+    // the task as "has worked" the first time its claude runs, so the idle that
+    // precedes the initial prompt never triggers completion.
+    if (config.worktree?.autoComplete) {
+      if (status === 'working') this.worktreeWorked.add(config.id)
+      if (status === 'idle') this.scheduleAutoComplete(config.id)
+      else this.clearAutoCompleteTimer(config.id)
+    }
 
     if (status !== 'needs-attention') return
     const focused = win?.isFocused() ?? false

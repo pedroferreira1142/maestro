@@ -94,7 +94,10 @@ export class FeatureService {
       name: feature.title,
       branch,
       baseBranch: baseBranch ?? info.branch ?? 'HEAD',
-      initialPrompt: implementPrompt(feature)
+      initialPrompt: implementPrompt(feature),
+      // Carry the feature's PR/merge preference onto the implementing task.
+      completion: feature.completion,
+      autoComplete: feature.autoComplete
     })
 
     // The worktree folder exists once createWorktreeSession resolves; the prompt

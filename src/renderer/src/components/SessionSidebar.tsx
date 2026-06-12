@@ -200,7 +200,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const categories = useStore((s) => s.categories)
   const setSessionCategory = useStore((s) => s.setSessionCategory)
   const newWorktreeTask = useStore((s) => s.newWorktreeTask)
-  const mergeWorktree = useStore((s) => s.mergeWorktree)
+  const completeWorktree = useStore((s) => s.completeWorktree)
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
@@ -272,10 +272,15 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
               <MergeBadge sessionId={id} worktree={worktree} />
               <button
                 className="btn ghost merge-btn"
-                title={`Merge ${worktree.branch} into ${worktree.baseBranch}`}
-                onClick={() => void mergeWorktree(id)}
+                title={
+                  worktree.completion === 'pr'
+                    ? `Push ${worktree.branch} and open a PR into ${worktree.baseBranch}`
+                    : `Merge ${worktree.branch} into ${worktree.baseBranch}`
+                }
+                onClick={() => void completeWorktree(id)}
               >
-                Merge
+                {worktree.completion === 'pr' ? 'PR' : 'Merge'}
+                {worktree.autoComplete && !worktree.autoCompletedAs ? ' ⏳' : ''}
               </button>
             </>
           ) : (
