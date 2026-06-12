@@ -16,6 +16,7 @@ import type {
   TerminalKind,
   WorktreeTaskState
 } from '../../shared/types'
+import { type ClaudeModelAlias, getModelAlias, setModelAlias } from '../../shared/claudeArgs'
 
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
 export interface AttentionEntry {
@@ -283,6 +284,12 @@ interface AppStore {
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
   restartTerminal(terminalId: string, mode: 'fresh' | 'resume'): Promise<void>
+  /**
+   * Switch a claude terminal's model: rewrite its claudeArgs' --model to
+   * `alias` (null = Default, no flag), persist it, and resume-respawn so the
+   * live conversation continues on the new model. No-op when already selected.
+   */
+  setTerminalModel(terminalId: string, alias: ClaudeModelAlias | null): Promise<void>
   renameTerminal(terminalId: string, title: string): Promise<void>
   openFile(sessionId: string, relPath: string): void
   /** Open (or focus) the git diff tab for a changed file (repo-root-relative path). */
@@ -931,6 +938,20 @@ export const useStore = create<AppStore>()((set, get) => ({
     await window.api.restartTerminal(terminalId, mode)
     set((st) => ({ epochs: { ...st.epochs, [terminalId]: (st.epochs[terminalId] ?? 0) + 1 } }))
     await get().refresh()
+  },
+
+  async setTerminalModel(terminalId, alias) {
+    const term = get()
+      .sessions.flatMap((s) => s.terminals)
+      .find((t) => t.config.id === terminalId)
+    if (!term || term.config.kind !== 'claude') return
+    // Already on this model — leave claudeArgs and the PTY untouched (no flicker).
+    if (getModelAlias(term.config.claudeArgs) === alias) return
+    const claudeArgs = setModelAlias(term.config.claudeArgs, alias)
+    await window.api.updateTerminal(terminalId, { claudeArgs })
+    // Resume-respawn so claude relaunches with the new --model and --continue;
+    // restartTerminal bumps the epoch so TerminalHost remounts xterm.
+    await get().restartTerminal(terminalId, 'resume')
   },
 
   async renameTerminal(terminalId, title) {
