@@ -44,6 +44,9 @@ npm run package    # build installers/portables into release/
 node bin/maestro.mjs   # run the built app
 ```
 
+Cutting a release: see [RELEASING.md](RELEASING.md) for the SemVer policy and the
+`npm run release:patch|minor|major` scripts.
+
 ## Use
 
 On macOS, `Cmd` works wherever `Ctrl` is listed (except `Ctrl+Tab`, which stays `Ctrl`).
