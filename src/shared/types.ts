@@ -1,7 +1,20 @@
+/**
+ * Lifecycle of a terminal as seen in the sidebar/tabs.
+ *  starting        — process is launching, nothing useful yet.
+ *  working         — output is actively flowing; the agent is busy.
+ *  needs-attention — claude is blocked on YOU (asked a question / hit a prompt).
+ *  done            — claude finished its turn and is waiting for you; output is
+ *                    ready to review. Only claude terminals reach this; plain
+ *                    shells settle to `idle` instead.
+ *  idle            — at rest with nothing pending (a quiet shell, or fallback).
+ *  exited          — the process has exited.
+ *  error           — failed to spawn / crashed.
+ */
 export type SessionStatus =
   | 'starting'
   | 'working'
   | 'needs-attention'
+  | 'done'
   | 'idle'
   | 'exited'
   | 'error'

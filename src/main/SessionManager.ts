@@ -85,6 +85,7 @@ function pidAlive(pid: number): boolean {
 const STATUS_PRIORITY: SessionStatus[] = [
   'needs-attention',
   'working',
+  'done',
   'starting',
   'idle',
   'error',
@@ -838,7 +839,8 @@ export class SessionManager {
     const terminal = this.claudeTargetTerminal(config)
     if (!terminal) return // session has no claude terminal — never dispatch
     const pty = this.ptys.get(terminal.id)
-    if (!pty?.alive || pty.detector.current !== 'idle') return
+    const settled = pty?.detector.current === 'done' || pty?.detector.current === 'idle'
+    if (!pty?.alive || !settled) return
     config.promptQueue = config.promptQueue!.slice(1)
     this.persistence.scheduleSave()
     // Same two-step write as runClaudeAction: a \r in the prompt's chunk would
@@ -950,10 +952,10 @@ export class SessionManager {
     // Only claude terminals dispatch queues or raise attention; shells stop here.
     if (!terminal || terminal.kind !== 'claude') return
 
-    // Queue dispatch rides the idle transition: claude must then stay idle for
-    // QUEUE_IDLE_DELAY_MS (re-checked when the countdown fires) before the
-    // oldest queued prompt is typed in.
-    if (status === 'idle') this.scheduleQueueDispatch(config.id)
+    // Queue dispatch rides the settled transition: claude must then stay
+    // settled (done/idle) for QUEUE_IDLE_DELAY_MS (re-checked when the countdown
+    // fires) before the oldest queued prompt is typed in.
+    if (status === 'done' || status === 'idle') this.scheduleQueueDispatch(config.id)
 
     if (status !== 'needs-attention') return
     const focused = win?.isFocused() ?? false

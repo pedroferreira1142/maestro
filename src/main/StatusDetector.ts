@@ -23,7 +23,10 @@ const ATTENTION_RE =
  *     (Claude Code emits this on prompts when preferredNotifChannel=terminal_bell.)
  *  2. Output flowing within the last 2.5 s → working.
  *  3. Output stopped + tail of screen matches prompt heuristics → needs-attention.
- *  4. Otherwise → idle.
+ *  4. Otherwise → done (claude settled after a turn, waiting for you).
+ *
+ * Plain (non-claude) shells never reach needs-attention/done: a shell at rest
+ * is just `idle`.
  */
 export class StatusDetector {
   private status: SessionStatus = 'starting'
@@ -74,10 +77,10 @@ export class StatusDetector {
     if (!this.stickyAttention) this.set('working')
   }
 
-  /** User typed into the terminal — they've seen whatever was asking. */
+  /** User typed into the terminal — they've seen whatever was asking/ready. */
   onUserInput(): void {
     this.stickyAttention = false
-    if (this.status === 'needs-attention') this.set('idle')
+    if (this.status === 'needs-attention' || this.status === 'done') this.set('idle')
   }
 
   /** Terminal process state changes override heuristics. */
@@ -96,7 +99,7 @@ export class StatusDetector {
       return
     }
     const lastLines = stripAnsi(this.tail).split('\n').slice(-15).join('\n')
-    this.set(ATTENTION_RE.test(lastLines) ? 'needs-attention' : 'idle')
+    this.set(ATTENTION_RE.test(lastLines) ? 'needs-attention' : 'done')
   }
 
   private set(status: SessionStatus): void {
