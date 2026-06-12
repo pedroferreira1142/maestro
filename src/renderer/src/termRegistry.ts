@@ -34,9 +34,10 @@ function defaultActive(session: SessionInfo): string {
 export function focusActiveTerminal(): void {
   const st = useStore.getState()
   if (
+    st.view !== 'session' ||
     st.pendingNewSession ||
     st.pendingWorktree ||
-    st.categoriesOpen ||
+    st.settingsOpen ||
     st.actionEditor ||
     st.globalSearchOpen ||
     st.paletteOpen ||

@@ -936,3 +936,130 @@ export const DEFAULT_CATEGORIES: RepoCategory[] = [
     detectFiles: []
   }
 ]
+
+// ---------- agent & skill factory (generate skills/agents from MCP sources) ----------
+
+/** What the factory produces: a Claude skill (SKILL.md) or a sub-agent (.md). */
+export type FactoryArtifactKind = 'skill' | 'agent'
+
+/**
+ * A connected MCP context the factory can mine. Discovered by asking a headless
+ * agent what MCP servers it can see (the claude.ai connectors are NOT in
+ * ~/.claude.json), so this is reported by the model, then merged with the
+ * user-scope servers from ~/.claude.json.
+ */
+export interface FactorySource {
+  /** Server key as it appears in tool names (segment after `mcp__`), e.g. 'claude_ai_Atlassian'. */
+  server: string
+  /** Human label, e.g. 'Atlassian (Confluence / Jira)'. */
+  label: string
+  /** allowedTools entry that unlocks the whole server, e.g. 'mcp__claude_ai_Atlassian'. */
+  toolPrefix: string
+  /** Representative read/search tool names the discovery agent reported. */
+  readTools: string[]
+}
+
+/**
+ * Lifecycle of a proposed artifact:
+ *  'proposed'  — suggested by a scan, awaiting the user's approval.
+ *  'authoring' — the author agent is writing its file content.
+ *  'active'    — written to disk and registered.
+ *  'error'     — authoring/writing failed (see `result`).
+ *  'rejected'  — the user dismissed it.
+ */
+export type FactoryCandidateStatus = 'proposed' | 'authoring' | 'active' | 'error' | 'rejected'
+
+/** One skill/agent the scan proposed (create a new one, or enrich an existing one). */
+export interface FactoryCandidate {
+  id: string
+  kind: FactoryArtifactKind
+  /** kebab-case slug used for the file/dir name (and the frontmatter `name`). */
+  name: string
+  /** One-line description (becomes the artifact's frontmatter description). */
+  description: string
+  /** Domain topics this artifact would cover. */
+  topics: string[]
+  /** Keywords for fuzzy matching/routing. */
+  keywords: string[]
+  /** Why it is worth building, per the scan agent. */
+  rationale: string
+  /** Name of an existing registered artifact this should ENRICH, or null to create new. */
+  existing: string | null
+  status: FactoryCandidateStatus
+  /** Set once authored: where the file was written. */
+  filePath?: string
+  /** Success detail or error message after an approve/author attempt. */
+  result?: string
+}
+
+/** A skill/agent the factory has generated and now tracks (the registry entry). */
+export interface FactoryArtifact {
+  id: string
+  kind: FactoryArtifactKind
+  /** kebab-case slug == file/dir name == frontmatter name. */
+  name: string
+  /** Absolute path of the written file. */
+  filePath: string
+  description: string
+  topics: string[]
+  keywords: string[]
+  /** MCP server key it was grounded on. */
+  source: string
+  /** Names of related artifacts (the connection map; stored bidirectionally). */
+  relatedArtifacts: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * A parked candidate topic the factory noticed but hasn't built yet
+ * (the self-extending "topics to pursue" backlog).
+ */
+export interface FactoryTopic {
+  id: string
+  title: string
+  /** Short note on why it looks worth its own artifact. */
+  note: string
+  /** Source server it was noticed in. */
+  source: string
+  status: 'open' | 'done' | 'rejected' | 'folded'
+  addedAt: number
+}
+
+/** A running-memory note of a mistake-not-to-repeat, fed into future scans/authors. */
+export interface FactoryLesson {
+  id: string
+  text: string
+  addedAt: number
+}
+
+/** Pipeline progress of a scan run, shown live in the pane. */
+export type FactoryRunPhase = 'discovering' | 'proposing' | 'done'
+
+export type FactoryRunStatus = 'running' | 'done' | 'error'
+
+/** One scan execution: explores a source and proposes candidates. Held in memory. */
+export interface FactoryRun {
+  id: string
+  /** Source server key the scan targeted. */
+  source: string
+  /** Source label, for display. */
+  sourceLabel: string
+  /** The user's steering text for this scan. */
+  guidance: string
+  startedAt: number
+  finishedAt: number | null
+  status: FactoryRunStatus
+  phase: FactoryRunPhase
+  /** Proposed artifacts (mutated as the user approves/rejects them). */
+  candidates: FactoryCandidate[]
+  /** The agent's one-line summary, or the error message on status 'error'. */
+  summary: string
+}
+
+/** The persisted factory registry (userData/factory.json). */
+export interface FactoryState {
+  artifacts: FactoryArtifact[]
+  topics: FactoryTopic[]
+  lessons: FactoryLesson[]
+}

@@ -3,6 +3,9 @@ import type {
   AutoExpandRun,
   ConductorMessage,
   DirEntry,
+  FactoryRun,
+  FactorySource,
+  FactoryState,
   Feature,
   FileContent,
   FsEvent,
@@ -194,6 +197,36 @@ export interface Api {
   clearConductor(): Promise<void>
   /** Fired whenever the conversation changes (new turn, action status). */
   onConductorChanged(cb: (messages: ConductorMessage[]) => void): Unsubscribe
+
+  // agent & skill factory (generate skills/agents from connected MCP sources)
+  /** Discover the connected MCP contexts the factory can mine (cached; refresh re-discovers). */
+  listFactorySources(refresh?: boolean): Promise<FactorySource[]>
+  /** The persisted factory registry (generated artifacts + backlog + lessons). */
+  getFactoryState(): Promise<FactoryState>
+  /** Scan runs, newest first (in-memory, this app run only). */
+  listFactoryRuns(): Promise<FactoryRun[]>
+  /** Explore a source and propose skill/agent candidates (pushed via onFactoryRuns). */
+  scanFactory(serverKey: string, guidance: string): Promise<void>
+  /** Approve a candidate: author its file and write it to ~/.claude. */
+  approveFactoryCandidate(runId: string, candidateId: string): Promise<void>
+  /** Approve every still-proposed candidate on a run. */
+  approveAllFactoryCandidates(runId: string): Promise<void>
+  /** Reject one proposed candidate without authoring it. */
+  rejectFactoryCandidate(runId: string, candidateId: string): Promise<void>
+  /** Delete a generated artifact (removes its file too). */
+  deleteFactoryArtifact(id: string): Promise<void>
+  /** Promote a backlog topic into a fresh scan seeded by it. */
+  promoteFactoryTopic(id: string): Promise<void>
+  /** Dismiss a backlog topic. */
+  dismissFactoryTopic(id: string): Promise<void>
+  /** Append a lesson-learned (fed into future scans/authors). */
+  addFactoryLesson(text: string): Promise<void>
+  /** Delete one lesson. */
+  deleteFactoryLesson(id: string): Promise<void>
+  /** Fired whenever the registry/backlog/lessons change. */
+  onFactoryChanged(cb: (state: FactoryState) => void): Unsubscribe
+  /** Fired whenever the scan run list changes (phase/candidate updates). */
+  onFactoryRuns(cb: (runs: FactoryRun[]) => void): Unsubscribe
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

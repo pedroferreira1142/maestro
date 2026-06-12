@@ -4,6 +4,9 @@ import type {
   AutoExpandConfig,
   AutoExpandRun,
   ConductorMessage,
+  FactoryRun,
+  FactorySource,
+  FactoryState,
   Feature,
   FsEvent,
   RepoCategory,
@@ -170,8 +173,8 @@ interface AppStore {
   pendingNewSession: PendingNewSession | null
   /** Parallel-task dialog payload; non-null while the dialog is open. */
   pendingWorktree: PendingWorktree | null
-  /** Whether the category-management dialog is open. */
-  categoriesOpen: boolean
+  /** Whether the Settings dialog (repo categories etc.) is open. */
+  settingsOpen: boolean
   /** The session whose environment-variables editor is open; null when closed. */
   envEditorSessionId: string | null
   /** Saved reusable actions (shell commands), shared across sessions. */
@@ -206,10 +209,18 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
-  /** Which surface the main area shows: a session's terminals, or the Conductor chat. */
-  view: 'session' | 'conductor'
+  /** Which surface the main area shows: a session's terminals, the Conductor chat, or the Factory. */
+  view: 'session' | 'conductor' | 'factory'
   /** The Conductor conversation, oldest first (pushed from main). */
   conductorMessages: ConductorMessage[]
+  /** Connected MCP sources the factory can mine (discovered lazily). */
+  factorySources: FactorySource[]
+  /** True while sources are being (re)discovered. */
+  factorySourcesLoading: boolean
+  /** The persisted factory registry (artifacts + backlog + lessons), pushed from main. */
+  factoryState: FactoryState
+  /** Scan runs, newest first (pushed from main). */
+  factoryRuns: FactoryRun[]
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -264,8 +275,8 @@ interface AppStore {
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
-  openCategories(): void
-  closeCategories(): void
+  openSettings(): void
+  closeSettings(): void
   openEnvEditor(sessionId: string): void
   closeEnvEditor(): void
   /**
@@ -370,6 +381,34 @@ interface AppStore {
   rejectConductorAction(messageId: string, actionId: string): Promise<void>
   /** Wipe the Conductor conversation. */
   clearConductor(): Promise<void>
+  /** Switch the main area to the Agent & Skill Factory. */
+  openFactory(): void
+  /** Load the factory registry + runs (and kick off source discovery). */
+  loadFactory(): Promise<void>
+  /** (Re)discover the connected MCP sources. */
+  loadFactorySources(refresh?: boolean): Promise<void>
+  /** Replace the factory registry (pushed from main). */
+  applyFactoryState(state: FactoryState): void
+  /** Replace the factory run list (pushed from main). */
+  applyFactoryRuns(runs: FactoryRun[]): void
+  /** Run a scan against a source with optional guidance. */
+  scanFactory(serverKey: string, guidance: string): Promise<void>
+  /** Approve (author + write) one proposed candidate. */
+  approveFactoryCandidate(runId: string, candidateId: string): Promise<void>
+  /** Approve every still-proposed candidate on a run. */
+  approveAllFactoryCandidates(runId: string): Promise<void>
+  /** Reject one proposed candidate. */
+  rejectFactoryCandidate(runId: string, candidateId: string): Promise<void>
+  /** Delete a generated artifact (removes its file). */
+  deleteFactoryArtifact(id: string): Promise<void>
+  /** Build a backlog topic (promotes it into a scan). */
+  promoteFactoryTopic(id: string): Promise<void>
+  /** Dismiss a backlog topic. */
+  dismissFactoryTopic(id: string): Promise<void>
+  /** Append a lesson-learned. */
+  addFactoryLesson(text: string): Promise<void>
+  /** Delete one lesson. */
+  deleteFactoryLesson(id: string): Promise<void>
   /** Show a brief confirmation message that dismisses itself. */
   showNotice(text: string): void
 }
@@ -398,7 +437,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   skills: [],
   pendingNewSession: null,
   pendingWorktree: null,
-  categoriesOpen: false,
+  settingsOpen: false,
   envEditorSessionId: null,
   actions: [],
   actionEditor: null,
@@ -418,6 +457,10 @@ export const useStore = create<AppStore>()((set, get) => ({
   broadcastOpen: false,
   view: 'session',
   conductorMessages: [],
+  factorySources: [],
+  factorySourcesLoading: false,
+  factoryState: { artifacts: [], topics: [], lessons: [] },
+  factoryRuns: [],
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -432,7 +475,8 @@ export const useStore = create<AppStore>()((set, get) => ({
     await Promise.all([
       get().loadCategoriesAndSkills(),
       get().loadActions(),
-      get().loadConductor()
+      get().loadConductor(),
+      get().loadFactory()
     ])
     await get().refresh()
     const { sessions } = get()
@@ -906,13 +950,13 @@ export const useStore = create<AppStore>()((set, get) => ({
     await get().refresh()
   },
 
-  openCategories() {
-    set({ categoriesOpen: true })
+  openSettings() {
+    set({ settingsOpen: true })
     void get().loadCategoriesAndSkills()
   },
 
-  closeCategories() {
-    set({ categoriesOpen: false })
+  closeSettings() {
+    set({ settingsOpen: false })
   },
 
   openEnvEditor(sessionId) {
@@ -1396,6 +1440,85 @@ export const useStore = create<AppStore>()((set, get) => ({
   async clearConductor() {
     await window.api.clearConductor()
     set({ conductorMessages: [] })
+  },
+
+  openFactory() {
+    set({ view: 'factory' })
+    void get().loadFactory()
+    // Discover sources once (lazily) the first time the factory is opened.
+    if (get().factorySources.length === 0 && !get().factorySourcesLoading) {
+      void get().loadFactorySources()
+    }
+  },
+
+  async loadFactory() {
+    const [factoryState, factoryRuns] = await Promise.all([
+      window.api.getFactoryState(),
+      window.api.listFactoryRuns()
+    ])
+    set({ factoryState, factoryRuns })
+  },
+
+  async loadFactorySources(refresh = false) {
+    set({ factorySourcesLoading: true })
+    try {
+      const factorySources = await window.api.listFactorySources(refresh)
+      set({ factorySources })
+    } catch {
+      set({ factorySources: [] })
+    } finally {
+      set({ factorySourcesLoading: false })
+    }
+  },
+
+  applyFactoryState(state) {
+    set({ factoryState: state })
+  },
+
+  applyFactoryRuns(runs) {
+    set({ factoryRuns: runs })
+  },
+
+  async scanFactory(serverKey, guidance) {
+    if (!serverKey) return
+    await window.api.scanFactory(serverKey, guidance)
+  },
+
+  async approveFactoryCandidate(runId, candidateId) {
+    await window.api.approveFactoryCandidate(runId, candidateId)
+  },
+
+  async approveAllFactoryCandidates(runId) {
+    await window.api.approveAllFactoryCandidates(runId)
+  },
+
+  async rejectFactoryCandidate(runId, candidateId) {
+    await window.api.rejectFactoryCandidate(runId, candidateId)
+  },
+
+  async deleteFactoryArtifact(id) {
+    const artifact = get().factoryState.artifacts.find((a) => a.id === id)
+    if (artifact && !window.confirm(`Delete the ${artifact.kind} "${artifact.name}" and its file?`)) {
+      return
+    }
+    await window.api.deleteFactoryArtifact(id)
+  },
+
+  async promoteFactoryTopic(id) {
+    await window.api.promoteFactoryTopic(id)
+  },
+
+  async dismissFactoryTopic(id) {
+    await window.api.dismissFactoryTopic(id)
+  },
+
+  async addFactoryLesson(text) {
+    if (!text.trim()) return
+    await window.api.addFactoryLesson(text.trim())
+  },
+
+  async deleteFactoryLesson(id) {
+    await window.api.deleteFactoryLesson(id)
   },
 
   showNotice(text) {
