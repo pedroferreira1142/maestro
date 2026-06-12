@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, SessionStatus, TerminalInfo, TerminalKind } from '../../../shared/types'
+import type { SessionInfo, TerminalInfo, TerminalKind } from '../../../shared/types'
 import { diffTabPath, isDiffTab, useStore } from '../store'
 import { copyTranscript, exportTranscript } from '../transcript'
-
-const STATUS_GLYPH: Record<SessionStatus, string> = {
-  starting: '◌',
-  working: '⟳',
-  'needs-attention': '●',
-  idle: '○',
-  exited: '✕',
-  error: '!'
-}
+import { STATUS_GLYPH, STATUS_LABEL } from './SessionSidebar'
 
 const KIND_ICON: Record<TerminalKind, string> = {
   claude: '✶',
@@ -127,14 +119,17 @@ function TerminalTab({
   return (
     <div
       className={`tab term-tab status-${terminal.status}${active ? ' active' : ''}`}
-      title={`${terminal.config.kind} · ${terminal.status}`}
+      title={`${terminal.config.kind} · ${STATUS_LABEL[terminal.status]}`}
       onClick={() => setActiveTab(sessionId, id)}
       onContextMenu={(e) => {
         e.preventDefault()
         setMenuPos({ x: e.clientX, y: e.clientY })
       }}
     >
-      <span className={`tab-icon glyph status-${terminal.status}`}>
+      <span
+        className={`tab-icon glyph status-${terminal.status}`}
+        aria-label={STATUS_LABEL[terminal.status]}
+      >
         {STATUS_GLYPH[terminal.status]}
       </span>
       <span className="tab-kind">{KIND_ICON[terminal.config.kind]}</span>

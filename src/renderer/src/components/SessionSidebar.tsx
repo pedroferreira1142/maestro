@@ -7,9 +7,21 @@ export const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
   working: '⟳',
   'needs-attention': '●',
+  done: '✓',
   idle: '○',
   exited: '✕',
   error: '!'
+}
+
+/** Human-readable status, for tooltips and the status bar. */
+export const STATUS_LABEL: Record<SessionStatus, string> = {
+  starting: 'Starting…',
+  working: 'Working…',
+  'needs-attention': 'Needs your input',
+  done: 'Finished — ready for you',
+  idle: 'Idle',
+  exited: 'Exited',
+  error: 'Error'
 }
 
 /** Max conflicted file paths listed in the badge tooltip before '+N more'. */
@@ -217,10 +229,16 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
         worktree ? ' worktree' : ''
       }`}
       style={session.config.color ? { borderLeftColor: session.config.color } : undefined}
-      title={`${session.config.folder}\n${session.status} · Ctrl+${index + 1}`}
+      title={`${session.config.folder}\n${STATUS_LABEL[session.status]} · Ctrl+${index + 1}`}
       onClick={() => setActive(id)}
     >
-      <span className={`glyph status-${session.status}`}>{STATUS_GLYPH[session.status]}</span>
+      <span
+        className={`glyph status-${session.status}`}
+        title={STATUS_LABEL[session.status]}
+        aria-label={STATUS_LABEL[session.status]}
+      >
+        {STATUS_GLYPH[session.status]}
+      </span>
       <div className="session-meta">
         {editing ? (
           <input

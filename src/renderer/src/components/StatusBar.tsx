@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SessionInfo } from '../../../shared/types'
 import { useStore } from '../store'
 import { jumpToAttentionTerminal } from '../termRegistry'
+import { STATUS_LABEL } from './SessionSidebar'
 
 export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
   const [, tick] = useState(0)
@@ -26,7 +27,7 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
 
   return (
     <div className="statusbar">
-      <span className={`status-pill status-${status}`}>{status}</span>
+      <span className={`status-pill status-${status}`}>{STATUS_LABEL[status]}</span>
       <span className="statusbar-folder" title={session.config.folder}>
         {session.config.folder}
       </span>

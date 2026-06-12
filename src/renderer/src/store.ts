@@ -84,6 +84,7 @@ function basename(folder: string): string {
 const STATUS_PRIORITY: SessionStatus[] = [
   'needs-attention',
   'working',
+  'done',
   'starting',
   'idle',
   'error',
@@ -994,7 +995,10 @@ export const useStore = create<AppStore>()((set, get) => ({
     // readiness shortly, so the badge reflects commits it just made.
     if (owner?.config.worktree && wasWorking) {
       const now = get().sessions.find((s) => s.config.id === owner.config.id)
-      if (now && (now.status === 'idle' || now.status === 'needs-attention')) {
+      if (
+        now &&
+        (now.status === 'done' || now.status === 'idle' || now.status === 'needs-attention')
+      ) {
         setTimeout(
           () => void get().refreshWorktreeState(owner.config.id),
           WORKTREE_STATE_SETTLE_MS
