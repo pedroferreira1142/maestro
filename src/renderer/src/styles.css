@@ -680,6 +680,70 @@ body {
   text-align: left;
 }
 
+.git-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.git-subhead {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 4px 12px 2px;
+}
+
+.git-checkpoints {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.git-checkpoint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 8px 2px 12px;
+}
+
+.git-checkpoint:hover {
+  background: var(--panel-2);
+}
+
+.git-checkpoint-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.git-checkpoint-label {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-checkpoint-meta {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.git-checkpoint-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.git-checkpoint-actions .btn.ghost {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
 .git-history {
   display: flex;
   flex-direction: column;

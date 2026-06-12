@@ -9,6 +9,8 @@ import {
   GitStatus,
   MergeResult,
   RepoCategory,
+  RepoCheckpoint,
+  RestoreCheckpointResult,
   ReusableAction,
   RunActionResult,
   SessionConfig,
@@ -263,6 +265,37 @@ export class SessionManager {
     if (res.code !== 0) throw new Error(res.output || 'git init failed')
     this.notifyChanged()
     return Git.worktreeInfo(config.folder)
+  }
+
+  /**
+   * Snapshot a session's working tree into a labeled checkpoint (the safety
+   * net taken before a risky prompt). Throws git's message on failure.
+   */
+  async createCheckpoint(sessionId: string, label: string): Promise<RepoCheckpoint> {
+    const config = this.getConfig(sessionId)
+    if (!config) throw new Error('Unknown session')
+    return Git.createCheckpoint(config.folder, label)
+  }
+
+  /** Recent checkpoints for a session's repo, newest first. */
+  async listCheckpoints(sessionId: string): Promise<RepoCheckpoint[]> {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    return Git.listCheckpoints(config.folder)
+  }
+
+  /** Restore a session's working tree back to a checkpoint (guarded, reversible). */
+  async restoreCheckpoint(sessionId: string, id: string): Promise<RestoreCheckpointResult> {
+    const config = this.getConfig(sessionId)
+    if (!config) return { ok: false, output: 'Unknown session', safety: null }
+    return Git.restoreCheckpoint(config.folder, id)
+  }
+
+  /** Delete one checkpoint from a session's repo. */
+  async deleteCheckpoint(sessionId: string, id: string): Promise<void> {
+    const config = this.getConfig(sessionId)
+    if (!config) throw new Error('Unknown session')
+    return Git.deleteCheckpoint(config.folder, id)
   }
 
   /**

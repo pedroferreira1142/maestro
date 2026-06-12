@@ -1,8 +1,44 @@
 import { useEffect, useState } from 'react'
-import type { GitCommit, GitFileChange, GitStatus, SessionInfo } from '../../../shared/types'
+import type {
+  GitCommit,
+  GitFileChange,
+  GitStatus,
+  RepoCheckpoint,
+  SessionInfo
+} from '../../../shared/types'
 import { useStore } from '../store'
 
 const HISTORY_LIMIT = 30
+
+/** Compact "x ago" for a checkpoint's age. */
+function timeAgo(at: number): string {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000))
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.round(s / 60)}m ago`
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`
+  return `${Math.round(s / 86400)}d ago`
+}
+
+/** Default checkpoint label, e.g. 'Checkpoint 14:05'. */
+function defaultCheckpointLabel(): string {
+  const now = new Date()
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  return `Checkpoint ${hh}:${mm}`
+}
+
+/**
+ * Prompt for a label and snapshot the active repo's working tree. Shared by the
+ * Git panel button and the command palette so both behave identically.
+ */
+export function promptAndCheckpoint(sessionId: string): void {
+  const label = window.prompt(
+    'Label this checkpoint (a snapshot of the current working tree):',
+    defaultCheckpointLabel()
+  )
+  if (label === null) return // cancelled
+  void useStore.getState().createCheckpoint(sessionId, label)
+}
 
 /** Dirty/ahead-behind chips for a repo's working tree + upstream. */
 function StatusChips({ status }: { status: GitStatus }): JSX.Element {
@@ -62,9 +98,12 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
   const gitNonce = useStore((s) => s.gitNonce)
   const refreshGit = useStore((s) => s.refreshGit)
   const openDiff = useStore((s) => s.openDiff)
+  const restoreCheckpoint = useStore((s) => s.restoreCheckpoint)
+  const deleteCheckpoint = useStore((s) => s.deleteCheckpoint)
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [files, setFiles] = useState<GitFileChange[]>([])
   const [log, setLog] = useState<GitCommit[]>([])
+  const [checkpoints, setCheckpoints] = useState<RepoCheckpoint[]>([])
   const [open, setOpen] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -74,12 +113,17 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
       const st = await window.api.gitStatus(id)
       if (cancelled) return
       setStatus(st)
-      const [changed, commits] = st.isRepo
-        ? await Promise.all([window.api.gitChangedFiles(id), window.api.gitLog(id, HISTORY_LIMIT)])
-        : [[], []]
+      const [changed, commits, cps] = st.isRepo
+        ? await Promise.all([
+            window.api.gitChangedFiles(id),
+            window.api.gitLog(id, HISTORY_LIMIT),
+            window.api.listCheckpoints(id)
+          ])
+        : [[], [], []]
       if (cancelled) return
       setFiles(changed)
       setLog(commits)
+      setCheckpoints(cps)
     })()
     return () => {
       cancelled = true
@@ -114,9 +158,18 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
           Git
         </span>
         {status?.isRepo && (
-          <button className="btn ghost" title="Refresh git status & history" onClick={refreshGit}>
-            ⟳
-          </button>
+          <span className="git-header-actions">
+            <button
+              className="btn ghost"
+              title="Checkpoint: snapshot the working tree so you can restore it later"
+              onClick={() => promptAndCheckpoint(id)}
+            >
+              ⛿ Checkpoint
+            </button>
+            <button className="btn ghost" title="Refresh git status & history" onClick={refreshGit}>
+              ⟳
+            </button>
+          </span>
         )}
       </div>
 
@@ -136,6 +189,39 @@ export function GitPanel({ session }: { session: SessionInfo }): JSX.Element {
             <div className="git-files">
               {files.map((f) => (
                 <ChangedFile key={f.path} file={f} onOpen={() => openDiff(id, f.path)} />
+              ))}
+            </div>
+          )}
+          {checkpoints.length > 0 && (
+            <div className="git-checkpoints">
+              <div className="git-subhead">Checkpoints</div>
+              {checkpoints.map((c) => (
+                <div
+                  key={c.id}
+                  className="git-checkpoint"
+                  title={`${c.label} · ${new Date(c.createdAt).toLocaleString()}`}
+                >
+                  <span className="git-checkpoint-body">
+                    <span className="git-checkpoint-label">{c.label}</span>
+                    <span className="git-checkpoint-meta">{timeAgo(c.createdAt)}</span>
+                  </span>
+                  <span className="git-checkpoint-actions">
+                    <button
+                      className="btn ghost"
+                      title="Restore the working tree to this checkpoint"
+                      onClick={() => void restoreCheckpoint(id, c.id, c.label)}
+                    >
+                      Restore
+                    </button>
+                    <button
+                      className="btn ghost"
+                      title="Delete this checkpoint"
+                      onClick={() => void deleteCheckpoint(id, c.id)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
               ))}
             </div>
           )}

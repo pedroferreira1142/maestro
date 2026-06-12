@@ -50,6 +50,13 @@ const api: Api = {
   gitChangedFiles: (sessionId) => ipcRenderer.invoke('git:changedFiles', sessionId),
   gitFileDiff: (sessionId, path) => ipcRenderer.invoke('git:fileDiff', sessionId, path),
 
+  createCheckpoint: (sessionId, label) =>
+    ipcRenderer.invoke('checkpoint:create', sessionId, label),
+  listCheckpoints: (sessionId) => ipcRenderer.invoke('checkpoint:list', sessionId),
+  restoreCheckpoint: (sessionId, id) =>
+    ipcRenderer.invoke('checkpoint:restore', sessionId, id),
+  deleteCheckpoint: (sessionId, id) => ipcRenderer.invoke('checkpoint:delete', sessionId, id),
+
   addTerminal: (sessionId, kind) => ipcRenderer.invoke('terminal:add', sessionId, kind),
   closeTerminal: (sessionId, terminalId) =>
     ipcRenderer.invoke('terminal:close', sessionId, terminalId),

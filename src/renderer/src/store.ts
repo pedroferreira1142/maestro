@@ -228,6 +228,12 @@ interface AppStore {
   refreshWorktreeState(sessionId: string): Promise<void>
   /** Force the Git panel to reload its status + history. */
   refreshGit(): void
+  /** Snapshot the working tree into a labeled checkpoint (safety net). */
+  createCheckpoint(sessionId: string, label: string): Promise<void>
+  /** Restore the working tree back to a checkpoint (confirms first; reversible). */
+  restoreCheckpoint(sessionId: string, id: string, label: string): Promise<void>
+  /** Delete one checkpoint. */
+  deleteCheckpoint(sessionId: string, id: string): Promise<void>
   /** Append a prompt to a session's auto-dispatch queue. */
   queueAdd(sessionId: string, text: string): Promise<void>
   /** Delete one queued prompt. */
@@ -489,6 +495,47 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   refreshGit() {
     set((st) => ({ gitNonce: st.gitNonce + 1 }))
+  },
+
+  async createCheckpoint(sessionId, label) {
+    try {
+      const cp = await window.api.createCheckpoint(sessionId, label)
+      get().refreshGit()
+      get().showNotice(`Checkpoint saved: ${cp.label}`)
+    } catch (err) {
+      window.alert(`Couldn't create a checkpoint:\n\n${(err as Error).message}`)
+    }
+  },
+
+  async restoreCheckpoint(sessionId, id, label) {
+    if (
+      !window.confirm(
+        `Restore the working tree to checkpoint "${label}"?\n\n` +
+          `Your current uncommitted changes will be replaced — but they're saved as a ` +
+          `new checkpoint first, so this can be undone.`
+      )
+    )
+      return
+    try {
+      const res = await window.api.restoreCheckpoint(sessionId, id)
+      get().refreshGit()
+      if (res.ok) {
+        get().showNotice(`Restored checkpoint: ${label}`)
+      } else {
+        window.alert(`Couldn't restore the checkpoint:\n\n${res.output}`)
+      }
+    } catch (err) {
+      window.alert(`Couldn't restore the checkpoint:\n\n${(err as Error).message}`)
+    }
+  },
+
+  async deleteCheckpoint(sessionId, id) {
+    try {
+      await window.api.deleteCheckpoint(sessionId, id)
+      get().refreshGit()
+    } catch (err) {
+      window.alert(`Couldn't delete the checkpoint:\n\n${(err as Error).message}`)
+    }
   },
 
   async confirmWorktreeTask(opts) {

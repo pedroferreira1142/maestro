@@ -401,6 +401,39 @@ export interface GitFileDiff {
   truncated: boolean
 }
 
+// ---------- repo checkpoints (working-tree safety net) ----------
+
+/**
+ * One working-tree snapshot taken before a risky prompt. Stored as a commit on
+ * a dedicated `refs/maestro-checkpoints/<id>` ref (HEAD and the user's index are
+ * never touched), so a checkpoint is just a labeled, timestamped tree the user
+ * can restore back to. Listed newest-first in the Git panel.
+ */
+export interface RepoCheckpoint {
+  /** Stable id (the ref name suffix), used to restore/delete this checkpoint. */
+  id: string
+  /** Full ref, e.g. 'refs/maestro-checkpoints/1718200000000-1'. */
+  ref: string
+  /** Commit OID the snapshot tree lives on. */
+  hash: string
+  /** Human label captured at checkpoint time (the commit subject). */
+  label: string
+  /** When the checkpoint was taken, ms since epoch. */
+  createdAt: number
+}
+
+/** Outcome of restoring the working tree back to a checkpoint. */
+export interface RestoreCheckpointResult {
+  ok: boolean
+  /** Combined git output, surfaced to the user on failure. */
+  output: string
+  /**
+   * Safety checkpoint auto-taken of the pre-restore working tree (so the
+   * restore itself is reversible); null only when no snapshot was needed.
+   */
+  safety: RepoCheckpoint | null
+}
+
 // ---------- features & specs ----------
 
 /** One requirement line within a feature. `done` is a manual authoring checkbox. */

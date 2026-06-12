@@ -98,6 +98,20 @@ export function registerIpc(
     sessions.getGitFileDiff(sessionId, path)
   )
 
+  // --- repo checkpoints (working-tree safety net) ---
+  ipcMain.handle('checkpoint:create', (_e, sessionId: string, label: string) =>
+    sessions.createCheckpoint(sessionId, label)
+  )
+  ipcMain.handle('checkpoint:list', (_e, sessionId: string) =>
+    sessions.listCheckpoints(sessionId)
+  )
+  ipcMain.handle('checkpoint:restore', (_e, sessionId: string, id: string) =>
+    sessions.restoreCheckpoint(sessionId, id)
+  )
+  ipcMain.handle('checkpoint:delete', (_e, sessionId: string, id: string) =>
+    sessions.deleteCheckpoint(sessionId, id)
+  )
+
   // --- terminals (within a session's folder) ---
   ipcMain.handle('terminal:add', (_e, sessionId: string, kind: TerminalKind) =>
     sessions.addTerminal(sessionId, kind)
