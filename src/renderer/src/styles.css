@@ -3366,6 +3366,12 @@ body {
 .conductor-focus-select:focus {
   outline: none;
 }
+/* The native option-list popup paints over an opaque OS background, so the
+   inherited light text would be invisible. Force a dark popup. */
+.conductor-focus-select option {
+  background: var(--panel);
+  color: var(--text);
+}
 
 .conductor-list {
   flex: 1;
