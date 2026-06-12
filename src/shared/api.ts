@@ -23,6 +23,7 @@ import type {
   TerminalInfo,
   TerminalKind,
   TranscriptExportResult,
+  UsageLimits,
   UsageSnapshot,
   WorktreeInfo,
   WorktreeTaskState
@@ -179,6 +180,12 @@ export interface Api {
   pathForFile(file: File): string
   // usage (token cost aggregated from Claude Code transcripts)
   getUsage(): Promise<UsageSnapshot>
+  /**
+   * Subscription plan usage limits (session/weekly utilization), the same data
+   * Claude Code's `/usage` shows. Null when unavailable (no/expired token or a
+   * failed request) — the widget then shows only its transcript-based figures.
+   */
+  getUsageLimits(): Promise<UsageLimits | null>
 
   // custom app background image
   /** Pick an image file and store it as the app background; returns its data URL (null = cancelled). */

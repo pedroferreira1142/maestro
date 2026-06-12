@@ -429,6 +429,52 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- plan limit bars (subscription session/weekly utilization) ---------- */
+
+.usage-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usage-limit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.usage-limit-pct {
+  flex: none;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-limit-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.usage-limit-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.usage-limit-reset {
+  font-size: 10px;
+  color: var(--dim);
+}
+
 /* ---------- explorer ---------- */
 
 .explorer {

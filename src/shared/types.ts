@@ -583,6 +583,35 @@ export interface UsageProjection {
   runsOutAt: number | null
 }
 
+/** One rate-limit window from the subscription usage endpoint. */
+export interface UsageLimitWindow {
+  /** Share of the plan limit consumed in this window, as a percentage (0–100). */
+  utilization: number
+  /** When this window's limit resets, ms since epoch; null when not tracked. */
+  resetsAt: number | null
+}
+
+/**
+ * Subscription plan usage limits — the same figures Claude Code's `/usage`
+ * shows (current 5-hour session, current week all-models, and per-model
+ * weekly windows). Fetched live from Anthropic with the OAuth token in
+ * `~/.claude/.credentials.json`; the whole object is null when usage is
+ * unavailable (no subscription token, an expired token, or a failed request),
+ * in which case the widget falls back to its transcript-based estimates.
+ */
+export interface UsageLimits {
+  /** Current rolling 5-hour session window. */
+  session: UsageLimitWindow
+  /** Current week, all models combined. */
+  week: UsageLimitWindow
+  /** Current week, Opus only; null when the plan doesn't track it separately. */
+  weekOpus: UsageLimitWindow | null
+  /** Current week, Sonnet only; null when the plan doesn't track it separately. */
+  weekSonnet: UsageLimitWindow | null
+  /** When this snapshot was fetched, ms since epoch. */
+  fetchedAt: number
+}
+
 /** Aggregated Claude Code API usage parsed from ~/.claude/projects transcripts. */
 export interface UsageSnapshot {
   total: TokenTotals

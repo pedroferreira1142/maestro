@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ProjectUsage, TokenTotals, UsageProjection, UsageSnapshot } from '../../../shared/types'
+import type {
+  ProjectUsage,
+  TokenTotals,
+  UsageLimits,
+  UsageLimitWindow,
+  UsageProjection,
+  UsageSnapshot
+} from '../../../shared/types'
 import { useStore } from '../store'
 
 const POLL_MS = 60_000
@@ -50,6 +57,56 @@ function fmtClock(at: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Reset time in Claude's `/usage` style: '1:50pm' today, 'Jun 18, 6pm' otherwise. */
+function fmtReset(at: number, now: number): string {
+  const d = new Date(at)
+  let h = d.getHours()
+  const ampm = h >= 12 ? 'pm' : 'am'
+  h = h % 12 || 12
+  const min = d.getMinutes()
+  const time = min === 0 ? `${h}${ampm}` : `${h}:${String(min).padStart(2, '0')}${ampm}`
+  if (new Date(now).toDateString() === d.toDateString()) return time
+  const mon = d.toLocaleString(undefined, { month: 'short' })
+  return `${mon} ${d.getDate()}, ${time}`
+}
+
+/** Bar fill color shifts to amber past 75% and red past 90% of the plan limit. */
+function limitColor(util: number): string {
+  if (util >= 90) return 'var(--error)'
+  if (util >= 75) return 'var(--attention)'
+  return 'var(--accent)'
+}
+
+/** One labelled plan-limit progress bar (session / week / per-model week). */
+function LimitBar({
+  label,
+  window: w,
+  now
+}: {
+  label: string
+  window: UsageLimitWindow
+  now: number
+}): JSX.Element {
+  const pct = Math.max(0, Math.min(100, w.utilization))
+  return (
+    <div className="usage-limit">
+      <div className="usage-limit-head">
+        <span className="usage-limit-name">{label}</span>
+        <span className="usage-limit-pct">{Math.round(w.utilization)}% used</span>
+      </div>
+      <div className="usage-limit-track">
+        <div
+          className="usage-limit-fill"
+          style={{ width: `${pct}%`, background: limitColor(w.utilization) }}
+        />
+      </div>
+      {w.resetsAt != null && (
+        <div className="usage-limit-reset">Resets {fmtReset(w.resetsAt, now)}</div>
+      )}
+    </div>
+  )
+}
+
 /** One-line burn-rate verdict for the current 5h window. */
 function runOutLabel(p: UsageProjection, now: number): { text: string; warn: boolean } {
   if (p.runsOutAt != null) {
@@ -83,6 +140,7 @@ interface Row {
 export function UsageWidget(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
   const [snap, setSnap] = useState<UsageSnapshot | null>(null)
+  const [limits, setLimits] = useState<UsageLimits | null>(null)
   const [open, setOpen] = useState(false)
   /** Viewport coords of the popup, anchored above the usage bar when it opens. */
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null)
@@ -114,6 +172,12 @@ export function UsageWidget(): JSX.Element {
         .getUsage()
         .then((s) => {
           if (alive) setSnap(s)
+        })
+        .catch(() => {})
+      void window.api
+        .getUsageLimits()
+        .then((l) => {
+          if (alive) setLimits(l)
         })
         .catch(() => {})
     }
@@ -187,6 +251,22 @@ export function UsageWidget(): JSX.Element {
               <span>cache w {fmtTokens(snap.total.cacheWriteTokens)}</span>
               <span>cache r {fmtTokens(snap.total.cacheReadTokens)}</span>
             </div>
+
+            {limits && (
+              <>
+                <div className="usage-section">plan limits</div>
+                <div className="usage-limits">
+                  <LimitBar label="Current session" window={limits.session} now={now} />
+                  <LimitBar label="Current week (all models)" window={limits.week} now={now} />
+                  {limits.weekOpus && (
+                    <LimitBar label="Current week (Opus)" window={limits.weekOpus} now={now} />
+                  )}
+                  {limits.weekSonnet && (
+                    <LimitBar label="Current week (Sonnet)" window={limits.weekSonnet} now={now} />
+                  )}
+                </div>
+              </>
+            )}
 
             {proj && runOut && (
               <>
@@ -264,6 +344,12 @@ export function UsageWidget(): JSX.Element {
         <span className="usage-coin">◍</span>
         <span className="usage-today">{fmtCost(snap.today.costUSD)} today</span>
         <span className="usage-dim">· {fmtCost(snap.total.costUSD)} total</span>
+        {limits && (
+          <span className="usage-dim" title="Plan usage: current 5h session · current week (all models)">
+            · {Math.round(limits.session.utilization)}% session ·{' '}
+            {Math.round(limits.week.utilization)}% week
+          </span>
+        )}
         <span className="usage-chevron">{open ? '▾' : '▴'}</span>
         {runOut && (
           <span className={`usage-runout${runOut.warn ? ' usage-warn' : ''}`}>{runOut.text}</span>
