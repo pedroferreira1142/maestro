@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   AutoExpandRun,
+  ConductorImage,
   ConductorMessage,
+  ConductorTaskOptions,
   FactoryRun,
   FactoryState,
   Feature,
@@ -59,6 +61,7 @@ const api: Api = {
   gitInit: (sessionId) => ipcRenderer.invoke('git:init', sessionId),
   gitChangedFiles: (sessionId) => ipcRenderer.invoke('git:changedFiles', sessionId),
   gitFileDiff: (sessionId, path) => ipcRenderer.invoke('git:fileDiff', sessionId, path),
+  gitBranches: (sessionId) => ipcRenderer.invoke('git:branches', sessionId),
 
   createCheckpoint: (sessionId, label) =>
     ipcRenderer.invoke('checkpoint:create', sessionId, label),
@@ -96,10 +99,10 @@ const api: Api = {
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
 
   listConductor: () => ipcRenderer.invoke('conductor:list'),
-  sendConductor: (text, tagSessionId) =>
-    ipcRenderer.invoke('conductor:send', text, tagSessionId ?? null),
-  approveConductorAction: (messageId, actionId) =>
-    ipcRenderer.invoke('conductor:approve', messageId, actionId),
+  sendConductor: (text, tagSessionId, images?: ConductorImage[]) =>
+    ipcRenderer.invoke('conductor:send', text, tagSessionId ?? null, images ?? []),
+  approveConductorAction: (messageId, actionId, options?: ConductorTaskOptions) =>
+    ipcRenderer.invoke('conductor:approve', messageId, actionId, options),
   approveAllConductorActions: (messageId) =>
     ipcRenderer.invoke('conductor:approveAll', messageId),
   rejectConductorAction: (messageId, actionId) =>
@@ -107,6 +110,13 @@ const api: Api = {
   clearConductor: () => ipcRenderer.invoke('conductor:clear'),
   onConductorChanged: (cb) =>
     subscribe('conductor:changed', (msgs) => cb(msgs as ConductorMessage[])),
+  conductorAttachClipboardImage: () => ipcRenderer.invoke('conductor:attachClipboard'),
+  conductorAttachImageFile: (srcPath) => ipcRenderer.invoke('conductor:attachFile', srcPath),
+  conductorAttachImageData: (name, bytes: Uint8Array) =>
+    ipcRenderer.invoke('conductor:attachData', name, bytes),
+  conductorDeleteAttachment: (fileName) => ipcRenderer.invoke('conductor:attachDelete', fileName),
+  getConductorTaskDefaults: (sessionId) =>
+    ipcRenderer.invoke('conductor:taskDefaults', sessionId),
 
   listFactorySources: (refresh) => ipcRenderer.invoke('factory:listSources', refresh),
   getFactoryState: () => ipcRenderer.invoke('factory:state'),

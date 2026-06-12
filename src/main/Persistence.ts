@@ -12,7 +12,8 @@ const DEFAULT_STATE: AppStateFile = {
   settings: DEFAULT_SETTINGS,
   categories: DEFAULT_CATEGORIES,
   actions: [],
-  features: []
+  features: [],
+  taskOptionDefaults: {}
 }
 
 /**
@@ -76,6 +77,10 @@ export class Persistence {
         categories: Array.isArray(raw.categories) ? raw.categories : DEFAULT_CATEGORIES,
         actions: Array.isArray(raw.actions) ? raw.actions : [],
         features: Array.isArray(raw.features) ? raw.features : [],
+        taskOptionDefaults:
+          raw.taskOptionDefaults && typeof raw.taskOptionDefaults === 'object'
+            ? raw.taskOptionDefaults
+            : {},
         sessions: Array.isArray(raw.sessions) ? raw.sessions.map(migrateSession) : []
       }
     } catch {

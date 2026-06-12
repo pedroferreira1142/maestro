@@ -3532,10 +3532,133 @@ body {
 
 .conductor-composer {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
   border-top: 1px solid var(--border);
 }
+.conductor-composer-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* pending image attachments (pasted/dropped, not yet sent) */
+.conductor-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.conductor-attach {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 3px;
+  display: flex;
+  align-items: center;
+}
+.conductor-attach img {
+  height: 48px;
+  border-radius: 4px;
+  display: block;
+}
+.conductor-attach-name {
+  font-size: 12px;
+  color: var(--dim);
+  padding: 0 6px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conductor-attach-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.conductor-attach-remove:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+/* images on a sent user message */
+.conductor-msg-images {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.conductor-msg-images img {
+  height: 56px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.conductor-msg-image-path {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+/* task-approval card options form */
+.conductor-task-form {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conductor-task-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conductor-task-field > span {
+  font-size: 12px;
+  color: var(--dim);
+  min-width: 90px;
+}
+.conductor-task-field select,
+.conductor-task-field input {
+  flex: 1;
+  max-width: 280px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+}
+.conductor-task-field select option {
+  background: var(--panel);
+  color: var(--text);
+}
+.conductor-task-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.conductor-task-check input {
+  accent-color: var(--accent);
+}
+
 .conductor-input {
   flex: 1;
   resize: none;

@@ -5,8 +5,10 @@ import { existsSync } from 'fs'
 import {
   ConductorAction,
   ConductorActionKind,
+  ConductorImage,
   ConductorMessage,
   ConductorRisk,
+  ConductorTaskOptions,
   Feature,
   SessionInfo
 } from '../shared/types'
@@ -110,10 +112,22 @@ export class ConductorService {
    * `tagSessionId` focuses the turn on one session: the planner runs in that
    * repo, sees only that session's state, and defaults its actions to it. Null
    * (or an id that no longer exists) keeps the cross-repo conductor behaviour.
+   *
+   * `images` are files already saved by the conductor attach IPC; the planner
+   * is told to Read each one (its Read tool renders images), so a screenshot
+   * pasted into the chat is actually seen, not just mentioned.
    */
-  async send(text: string, tagSessionId: string | null = null): Promise<void> {
+  async send(
+    text: string,
+    tagSessionId: string | null = null,
+    images: ConductorImage[] = []
+  ): Promise<void> {
     const trimmed = text.trim()
-    if (!trimmed || this.busy) return
+    // Only forward images whose files still exist (renderer state can be stale).
+    const attached = (images ?? []).filter(
+      (i) => i && typeof i.path === 'string' && existsSync(i.path)
+    )
+    if ((!trimmed && attached.length === 0) || this.busy) return
     this.busy = true
 
     // Only honour the tag if it still points at a real session.
@@ -123,7 +137,8 @@ export class ConductorService {
       id: randomUUID(),
       role: 'user',
       text: trimmed,
-      at: Date.now()
+      at: Date.now(),
+      ...(attached.length > 0 ? { images: attached } : {})
     }
     const assistantMsg: ConductorMessage = {
       id: randomUUID(),
@@ -137,7 +152,7 @@ export class ConductorService {
 
     try {
       const snapshot = await this.buildSnapshot(focusId)
-      const prompt = this.buildPrompt(snapshot, userMsg.text, focusId)
+      const prompt = this.buildPrompt(snapshot, userMsg.text, focusId, attached)
       const cwd = this.plannerCwd(focusId)
       const out = await runHeadlessClaude({
         cwd,
@@ -163,11 +178,26 @@ export class ConductorService {
     }
   }
 
-  /** Approve and run one proposed action. */
-  async approve(messageId: string, actionId: string): Promise<void> {
+  /**
+   * Approve and run one proposed action. For task-creating actions, `options`
+   * carries the approval card's choices (base branch, model, PR/auto-merge);
+   * they are applied to the created task and persisted as that repo's defaults
+   * for the next proposal.
+   */
+  async approve(
+    messageId: string,
+    actionId: string,
+    options?: ConductorTaskOptions
+  ): Promise<void> {
     const action = this.findAction(messageId, actionId)
     if (!action || action.status !== 'proposed') return
-    await this.runAction(action)
+    if (options) this.saveTaskDefaults(action, options)
+    await this.runAction(action, options)
+  }
+
+  /** Persisted per-repo task-card defaults for a session, or null when none yet. */
+  getTaskDefaults(sessionId: string): ConductorTaskOptions | null {
+    return this.persistence.state.taskOptionDefaults?.[sessionId] ?? null
   }
 
   /** Approve every non-destructive proposed action on a turn, in order. */
@@ -195,13 +225,47 @@ export class ConductorService {
     return this.messages.find((m) => m.id === messageId)?.actions?.find((a) => a.id === actionId)
   }
 
+  /**
+   * The session whose repo a task-creating action targets — where the card's
+   * options apply and under which the per-repo defaults are stored.
+   */
+  private taskTargetSessionId(action: ConductorAction): string | null {
+    const a = action.args
+    if (action.kind === 'create_worktree_task') return String(a.parentSessionId ?? '') || null
+    if (action.kind === 'author_feature') return String(a.sessionId ?? '') || null
+    return null
+  }
+
+  /** Remember the card's choices as the defaults for that repo's next proposal. */
+  private saveTaskDefaults(action: ConductorAction, options: ConductorTaskOptions): void {
+    const sessionId = this.taskTargetSessionId(action)
+    if (!sessionId) return
+    const map = (this.persistence.state.taskOptionDefaults ??= {})
+    map[sessionId] = options
+    this.persistence.scheduleSave()
+  }
+
+  /**
+   * The effective task options for an action: the card's explicit choices when
+   * given, else the repo's persisted defaults (so Approve-all and re-approvals
+   * honour the last configuration), else none (the planner's args as-is).
+   */
+  private taskOptionsFor(
+    action: ConductorAction,
+    explicit?: ConductorTaskOptions
+  ): ConductorTaskOptions | undefined {
+    if (explicit) return explicit
+    const sessionId = this.taskTargetSessionId(action)
+    return (sessionId && this.persistence.state.taskOptionDefaults?.[sessionId]) || undefined
+  }
+
   /** Run one action by dispatching to the existing services; records the outcome. */
-  private async runAction(action: ConductorAction): Promise<void> {
+  private async runAction(action: ConductorAction, options?: ConductorTaskOptions): Promise<void> {
     action.status = 'running'
     action.result = undefined
     this.persistAndBroadcast()
     try {
-      action.result = await this.dispatch(action)
+      action.result = await this.dispatch(action, options)
       action.status = 'done'
     } catch (err) {
       action.status = 'error'
@@ -211,7 +275,7 @@ export class ConductorService {
   }
 
   /** Map one approved action to a concrete service call; returns a result line. */
-  private async dispatch(action: ConductorAction): Promise<string> {
+  private async dispatch(action: ConductorAction, options?: ConductorTaskOptions): Promise<string> {
     const a = action.args
     switch (action.kind) {
       case 'create_session': {
@@ -227,9 +291,20 @@ export class ConductorService {
       case 'author_feature': {
         const session = this.requireSession(String(a.sessionId ?? ''))
         const feature = this.makeFeature(session.config.id, a)
+        const opts = a.implement ? this.taskOptionsFor(action, options) : undefined
+        if (opts) {
+          // The card's PR/auto-merge choice rides on the feature into its task.
+          if (opts.createPr) feature.completion = 'pr'
+          if (opts.createPr || opts.autoMerge) feature.autoComplete = true
+        }
         this.features.save(feature)
         if (a.implement) {
-          const task = await this.features.implement(feature.id)
+          const model = opts && opts.model !== 'inherit' ? opts.model : undefined
+          const task = await this.features.implement(
+            feature.id,
+            opts?.baseBranch.trim() || undefined,
+            model
+          )
           return `Drafted “${feature.title}” and spun a task to implement it (${task.config.name}).`
         }
         return `Drafted feature “${feature.title}” with ${feature.specs.length} spec(s).`
@@ -244,13 +319,30 @@ export class ConductorService {
         const parent = this.requireSession(String(a.parentSessionId ?? ''))
         const branch = String(a.branch ?? '').trim()
         if (!branch) throw new Error('A branch name is required.')
+        const opts = this.taskOptionsFor(action, options)
+        // Card choice wins over the planner's suggested base; '' = repo default
+        // (resolved by createWorktreeSession to the checked-out branch).
+        const baseBranch = (opts?.baseBranch.trim() || String(a.baseBranch ?? '')).trim()
+        const model = opts && opts.model !== 'inherit' ? opts.model : undefined
         const task = await this.sessions.createWorktreeSession(parent.config.id, {
           name: a.name ? String(a.name) : branch,
           branch,
-          baseBranch: String(a.baseBranch ?? '').trim(),
-          initialPrompt: a.initialPrompt ? String(a.initialPrompt) : undefined
+          baseBranch,
+          initialPrompt: a.initialPrompt ? String(a.initialPrompt) : undefined,
+          ...(opts?.createPr ? { completion: 'pr' as const } : {}),
+          ...(opts && (opts.createPr || opts.autoMerge) ? { autoComplete: true } : {}),
+          ...(model ? { model } : {})
         })
-        return `Spun task “${task.config.name}” on branch ${branch}.`
+        const extras = [
+          model ? `model ${model}` : '',
+          opts?.createPr ? 'PR on completion' : '',
+          opts?.autoMerge ? 'auto-merge when done' : ''
+        ].filter(Boolean)
+        return (
+          `Spun task “${task.config.name}” on branch ${branch}` +
+          (extras.length ? ` (${extras.join(', ')})` : '') +
+          '.'
+        )
       }
       case 'queue_prompt': {
         const session = this.requireSession(String(a.sessionId ?? ''))
@@ -399,18 +491,26 @@ export class ConductorService {
   }
 
   /** Compose the full planner prompt: role, action catalog, snapshot, history, ask. */
-  private buildPrompt(snapshot: unknown, latest: string, focusId: string | null): string {
+  private buildPrompt(
+    snapshot: unknown,
+    latest: string,
+    focusId: string | null,
+    images: ConductorImage[] = []
+  ): string {
     const focusName = focusId ? this.sessions.getConfig(focusId)?.name : undefined
     // Recent conversation context (exclude the just-added pending assistant turn).
     const history = this.messages
-      .filter((m) => !m.pending && (m.text || (m.actions && m.actions.length)))
+      .filter((m) => !m.pending && (m.text || m.images?.length || (m.actions && m.actions.length)))
       .slice(-HISTORY_TURNS - 1, -1) // up to HISTORY_TURNS turns before the latest user msg
       .map((m) => {
         const acts =
           m.actions && m.actions.length
             ? ` [proposed: ${m.actions.map((a) => `${a.kind}(${a.status})`).join(', ')}]`
             : ''
-        return `${m.role.toUpperCase()}: ${m.text}${acts}`
+        const imgs = m.images?.length
+          ? ` [attached: ${m.images.map((i) => i.path).join(', ')}]`
+          : ''
+        return `${m.role.toUpperCase()}: ${m.text}${imgs}${acts}`
       })
       .join('\n')
 
@@ -440,7 +540,12 @@ export class ConductorService {
       '```',
       '',
       history ? `RECENT CONVERSATION:\n${history}\n` : '',
-      `THE USER NOW SAYS:\n${latest}`,
+      `THE USER NOW SAYS:\n${latest || '(no text — see the attached images)'}`,
+      images.length
+        ? '\nTHE USER ATTACHED IMAGE FILE(S) — e.g. screenshots to analyze. View each one ' +
+          'with the Read tool (it renders images) using these ABSOLUTE paths, BEFORE answering:\n' +
+          images.map((i) => `- ${i.path}`).join('\n')
+        : '',
       '',
       'Respond with EXACTLY ONE JSON object and nothing else — no markdown fences, no prose',
       'around it — shaped like:',
