@@ -33,7 +33,8 @@ const statsFile = arg('--stats')
 const HEAD_LINES = 120
 const TAIL_LINES = 80
 const KEEP_MAX = 60
-const KEEP = /\b(error|fail|failed|failure|warn|warning|exception|fatal|panic|traceback)\b/i
+const KEEP_ERR = /\b(error|fail|failed|failure|exception|fatal|panic|traceback)\b/i
+const KEEP_WARN = /\b(warn|warning)\b/i
 
 function compress(raw) {
   // Strip ANSI CSI/OSC sequences; keep only the final state of \r-redrawn lines.
@@ -65,13 +66,18 @@ function compress(raw) {
   const head = collapsed.slice(0, HEAD_LINES)
   const tail = collapsed.slice(collapsed.length - TAIL_LINES)
   const middle = collapsed.slice(HEAD_LINES, collapsed.length - TAIL_LINES)
-  const kept = []
+  // Errors outrank warnings for the keep budget — a wall of deprecation
+  // warnings must never crowd out the one failure line.
+  const errs = []
+  const warns = []
   for (const line of middle) {
-    if (KEEP.test(line)) {
-      kept.push(line)
-      if (kept.length >= KEEP_MAX) break
+    if (KEEP_ERR.test(line)) {
+      if (errs.length < KEEP_MAX) errs.push(line)
+    } else if (KEEP_WARN.test(line)) {
+      if (warns.length < KEEP_MAX) warns.push(line)
     }
   }
+  const kept = errs.concat(warns.slice(0, Math.max(0, KEEP_MAX - errs.length)))
   const omitted = middle.length - kept.length
   return head
     .concat(

@@ -373,13 +373,13 @@ export class TokenEfficiencyService {
       }
       if (pre.length > 0) hooks.PreToolUse = pre
       if (effective.codeGraph) {
-        hooks.SessionStart = [
-          {
-            hooks: [
-              { type: 'command', command: node + ' ' + q(this.scripts.sessionContext), timeout: 10 }
-            ]
-          }
-        ]
+        const start: unknown[] = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : []
+        start.push({
+          hooks: [
+            { type: 'command', command: node + ' ' + q(this.scripts.sessionContext), timeout: 10 }
+          ]
+        })
+        hooks.SessionStart = start
       }
     }
 

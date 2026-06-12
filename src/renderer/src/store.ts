@@ -175,6 +175,8 @@ interface AppStore {
   pendingWorktree: PendingWorktree | null
   /** Whether the Settings dialog (repo categories etc.) is open. */
   settingsOpen: boolean
+  /** Which Settings tab the dialog opens on (clickable once open). */
+  settingsTab: 'categories' | 'token-efficiency'
   /** The session whose environment-variables editor is open; null when closed. */
   envEditorSessionId: string | null
   /** Saved reusable actions (shell commands), shared across sessions. */
@@ -280,8 +282,10 @@ interface AppStore {
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
-  openSettings(): void
+  openSettings(tab?: 'categories' | 'token-efficiency'): void
   closeSettings(): void
+  /** Reload the settings object from main (after a save elsewhere). */
+  reloadSettings(): Promise<void>
   openEnvEditor(sessionId: string): void
   closeEnvEditor(): void
   /**
@@ -447,6 +451,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   pendingNewSession: null,
   pendingWorktree: null,
   settingsOpen: false,
+  settingsTab: 'categories',
   envEditorSessionId: null,
   actions: [],
   actionEditor: null,
@@ -962,13 +967,17 @@ export const useStore = create<AppStore>()((set, get) => ({
     await get().refresh()
   },
 
-  openSettings() {
-    set({ settingsOpen: true })
+  openSettings(tab = 'categories') {
+    set({ settingsOpen: true, settingsTab: tab })
     void get().loadCategoriesAndSkills()
   },
 
   closeSettings() {
     set({ settingsOpen: false })
+  },
+
+  async reloadSettings() {
+    set({ settings: await window.api.getSettings() })
   },
 
   openEnvEditor(sessionId) {

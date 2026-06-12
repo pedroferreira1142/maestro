@@ -520,7 +520,7 @@ export function SessionSidebar(): JSX.Element {
           <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
             ◫
           </button>
-          <button className="btn ghost" title="Settings" onClick={openSettings}>
+          <button className="btn ghost" title="Settings" onClick={() => openSettings()}>
             ⚙
           </button>
           <button
