@@ -1,4 +1,5 @@
 import type {
+  AgentsSnapshot,
   AttachmentInfo,
   AutoExpandRun,
   BranchListing,
@@ -281,6 +282,18 @@ export interface Api {
   onFactoryChanged(cb: (state: FactoryState) => void): Unsubscribe
   /** Fired whenever the scan run list changes (phase/candidate updates). */
   onFactoryRuns(cb: (runs: FactoryRun[]) => void): Unsubscribe
+
+  // installed agents + external agent-factory registry (Factory → Agents tab)
+  /** Installed agents (~/.claude/agents + session repos) merged with the external registry. */
+  getInstalledAgents(): Promise<AgentsSnapshot>
+  /** Force a re-scan/re-read now (also re-arms the file watchers). */
+  refreshInstalledAgents(): Promise<AgentsSnapshot>
+  /** Read an agent file the snapshot listed (null when unknown/unreadable). */
+  readInstalledAgent(filePath: string): Promise<string | null>
+  /** Reveal an agent file in the OS file manager. */
+  revealInstalledAgent(filePath: string): Promise<void>
+  /** Fired whenever the agents dirs / registry.json / .factory.lock change on disk. */
+  onAgentsChanged(cb: (snapshot: AgentsSnapshot) => void): Unsubscribe
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

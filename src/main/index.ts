@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+import { AgentRegistryService } from './AgentRegistryService'
 import { AutoExpandService } from './AutoExpand'
 import { ConductorService } from './ConductorService'
 import { FactoryService } from './FactoryService'
@@ -93,6 +94,7 @@ if (!gotLock) {
     const autoExpand = new AutoExpandService(persistence, features, getWin)
     const conductor = new ConductorService(persistence, sessions, features, autoExpand, getWin)
     const factory = new FactoryService(getWin)
+    const agentRegistry = new AgentRegistryService(persistence, getWin)
     registerIpc(
       sessions,
       fsService,
@@ -102,6 +104,7 @@ if (!gotLock) {
       autoExpand,
       conductor,
       factory,
+      agentRegistry,
       tokenEff,
       getWin
     )
@@ -121,6 +124,7 @@ if (!gotLock) {
 
     app.on('before-quit', () => {
       tokenEff.dispose()
+      agentRegistry.dispose()
       factory.dispose()
       conductor.dispose()
       autoExpand.dispose()

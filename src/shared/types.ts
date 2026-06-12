@@ -1025,6 +1025,8 @@ export interface Settings {
    * parallel tasks share one override).
    */
   tokenEfficiencyRepoOverrides: Record<string, TokenEfficiencyOverride>
+  /** Path of the external Agent Factory registry.json (Factory → Agents tab). */
+  agentRegistryPath: string
 }
 
 export interface WindowBounds {
@@ -1067,7 +1069,8 @@ export const DEFAULT_SETTINGS: Settings = {
   watchdogStallMinutes: 10,
   watchdogUnansweredMinutes: 5,
   tokenEfficiency: DEFAULT_TOKEN_EFFICIENCY,
-  tokenEfficiencyRepoOverrides: {}
+  tokenEfficiencyRepoOverrides: {},
+  agentRegistryPath: 'C:\\repos\\agent-factory\\registry\\registry.json'
 }
 
 /**
@@ -1261,4 +1264,84 @@ export interface FactoryState {
   artifacts: FactoryArtifact[]
   topics: FactoryTopic[]
   lessons: FactoryLesson[]
+}
+
+// ---------- installed agents + external agent-factory registry ----------
+
+/** Where an installed agent .md lives: ~/.claude/agents or a repo's .claude/agents. */
+export type InstalledAgentScope = 'user' | 'project'
+
+/** A GitHub repo an agent is grounded on (always pinned to a commit SHA). */
+export interface AgentGithubRepo {
+  repo: string
+  /** Pinned commit SHA (null when the registry entry omitted it). */
+  ref: string | null
+  paths: string[]
+}
+
+/**
+ * One entry of the external Agent Factory registry (registry.json), normalized.
+ * Merged onto installed agents by name; unmatched entries with a missing file
+ * surface as drift.
+ */
+export interface AgentRegistryEntry {
+  name: string
+  /** file_path resolved to an absolute path (relative entries resolve against the registry repo root). */
+  filePath: string | null
+  /** 'domain' | 'infrastructure' (free-form in the registry). */
+  type: string | null
+  status: string | null
+  /** advisor | reviewer | router | scaffolder | diagnostic (null when unset). */
+  archetype: string | null
+  model: string | null
+  scope: string | null
+  description: string
+  topics: string[]
+  keywords: string[]
+  relatedAgents: string[]
+  /** Confluence grounding: page ids (confluence_pages + confluence_source). */
+  confluencePages: string[]
+  /** Whether the agent's Confluence sources were verified real. */
+  sourceVerified: boolean
+  /** GitHub grounding: pinned repos/SHAs. */
+  githubRepos: AgentGithubRepo[]
+  githubVerified: boolean
+  /** Knowledge-layer note file names serving this agent. */
+  knowledgeNotes: string[]
+  factoryMade: boolean | null
+  created: string | null
+  lastUpdated: string | null
+  /** Drift: the entry's file_path doesn't exist on disk. */
+  fileMissing: boolean
+}
+
+/** One installed Claude Code agent (.md), enriched with registry metadata when matched. */
+export interface InstalledAgent {
+  /** Frontmatter name (falls back to the file basename). */
+  name: string
+  description: string
+  /** Frontmatter model, when declared. */
+  model: string | null
+  scope: InstalledAgentScope
+  /** For project scope: the session repo folder it came from. */
+  projectDir: string | null
+  filePath: string
+  /** Registry metadata merged by name; null = not in the registry ('unregistered'). */
+  registry: AgentRegistryEntry | null
+}
+
+/** Snapshot for the Factory's Agents tab: installed agents merged with the external registry. */
+export interface AgentsSnapshot {
+  agents: InstalledAgent[]
+  /** Drift: registry entries whose file doesn't exist on disk (and match no installed agent). */
+  missing: AgentRegistryEntry[]
+  /** Where the registry was read from (the configured path). */
+  registryPath: string
+  /** Null when the registry loaded fine; otherwise why it didn't (missing, parse error…). */
+  registryError: string | null
+  /** registry _meta.version / _meta.last_updated, when present. */
+  registryVersion: string | null
+  registryUpdated: string | null
+  /** True while <registry dir>/.factory.lock exists — the external factory is running. */
+  factoryRunning: boolean
 }

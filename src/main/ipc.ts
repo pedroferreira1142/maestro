@@ -26,6 +26,7 @@ import {
   listAttachments,
   readAttachment
 } from './Attachments'
+import { AgentRegistryService } from './AgentRegistryService'
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { ConductorService } from './ConductorService'
@@ -61,6 +62,7 @@ export function registerIpc(
   autoExpand: AutoExpandService,
   conductor: ConductorService,
   factory: FactoryService,
+  agents: AgentRegistryService,
   tokenEff: TokenEfficiencyService,
   getWin: () => BrowserWindow | null
 ): void {
@@ -261,6 +263,12 @@ export function registerIpc(
   ipcMain.handle('factory:addLesson', (_e, text: string) => factory.addLesson(text))
   ipcMain.handle('factory:deleteLesson', (_e, id: string) => factory.deleteLesson(id))
 
+  // --- installed agents + external agent-factory registry (Factory → Agents tab) ---
+  ipcMain.handle('agents:get', () => agents.snapshot())
+  ipcMain.handle('agents:refresh', () => agents.refresh())
+  ipcMain.handle('agents:read', (_e, filePath: string) => agents.readAgentFile(filePath))
+  ipcMain.handle('agents:reveal', (_e, filePath: string) => agents.revealAgentFile(filePath))
+
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)
   ipcMain.handle('actions:save', (_e, actions: ReusableAction[]) => sessions.saveActions(actions))
@@ -431,5 +439,7 @@ export function registerIpc(
     Object.assign(persistence.state.settings, patch)
     persistence.scheduleSave()
     getWin()?.webContents.send('session:changed')
+    // The agents view depends on the registry path — re-snapshot + re-arm watchers.
+    if (patch.agentRegistryPath !== undefined) agents.refresh()
   })
 }
