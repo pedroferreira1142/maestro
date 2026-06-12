@@ -12,6 +12,11 @@ export interface PtyCallbacks {
   onData(id: string, data: string): void
   onStatus(id: string, status: SessionStatus): void
   onExit(id: string, exitCode: number): void
+  /**
+   * Fires for every output chunk, attached or not (onData only fires once the
+   * renderer attached). Used to keep the persisted scrollback dirty-marked.
+   */
+  onOutput?(id: string): void
 }
 
 interface ResolvedCommand {
@@ -218,6 +223,29 @@ export class PtySession {
   }
 
   /**
+   * Pre-loads output saved from a previous run into the ring buffer, so
+   * attach() replays it ahead of the live process output. Call before
+   * spawn(); seeded text bypasses the status detector and live forwarding.
+   */
+  seedHistory(text: string): void {
+    if (!text) return
+    this.chunks.push(text)
+    this.bufferedBytes += text.length
+  }
+
+  /** The most recent `maxBytes` of buffered output (for scrollback persistence). */
+  tail(maxBytes: number): string {
+    const parts: string[] = []
+    let total = 0
+    for (let i = this.chunks.length - 1; i >= 0 && total < maxBytes; i--) {
+      parts.push(this.chunks[i])
+      total += this.chunks[i].length
+    }
+    const text = parts.reverse().join('')
+    return text.length > maxBytes ? text.slice(-maxBytes) : text
+  }
+
+  /**
    * Marks the renderer as attached and returns the ring buffer for replay.
    * Live forwarding starts only after this snapshot, so the renderer sees a
    * gapless, duplicate-free stream as long as it registers its data listener
@@ -249,6 +277,7 @@ export class PtySession {
       this.chunks.shift()
     }
     this.detector.feed(data)
+    this.cb.onOutput?.(this.config.id)
     if (this.attached) this.cb.onData(this.config.id, data)
   }
 
