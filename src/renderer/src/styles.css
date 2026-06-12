@@ -1992,6 +1992,11 @@ body {
   pointer-events: none;
 }
 
+.term-drop-hint.path {
+  border-color: var(--green);
+  color: var(--green);
+}
+
 .term-container {
   width: 100%;
   height: 100%;

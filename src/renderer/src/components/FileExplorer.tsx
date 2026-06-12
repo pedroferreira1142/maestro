@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AttachmentInfo, DirEntry, SessionInfo } from '../../../shared/types'
+import { MAESTRO_PATH_MIME, type AttachmentInfo, type DirEntry, type SessionInfo } from '../../../shared/types'
 import { fsBus } from '../fsBus'
 import { useStore } from '../store'
 import { ActionsPanel } from './ActionsPanel'
@@ -188,6 +188,13 @@ export function FileExplorer({ session }: { session: SessionInfo }): JSX.Element
             key={e.relPath}
             className={`tree-row file${isFlash ? ' flash' : ''}`}
             style={{ paddingLeft: pad }}
+            draggable
+            onDragStart={(ev) => {
+              // Carry only the session-relative path under our own type; a
+              // terminal drop reads this to paste the path into the prompt.
+              ev.dataTransfer.setData(MAESTRO_PATH_MIME, e.relPath)
+              ev.dataTransfer.effectAllowed = 'copy'
+            }}
             onClick={() => openFile(id, e.relPath)}
             onDoubleClick={() => void window.api.openInEditor(id, e.relPath)}
             onContextMenu={(ev) => {
