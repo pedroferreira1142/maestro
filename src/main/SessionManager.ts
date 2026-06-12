@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { existsSync, rmSync } from 'fs'
 import {
+  BranchListing,
   GitCommit,
   GitFileChange,
   GitFileDiff,
@@ -308,6 +309,13 @@ export class SessionManager {
     return Git.gitFileDiff(config.folder, path)
   }
 
+  /** Local branches + default branch of a session's repo (base-branch picker). */
+  async listBranches(sessionId: string): Promise<BranchListing> {
+    const config = this.getConfig(sessionId)
+    if (!config) return { branches: [], current: null, defaultBranch: null }
+    return Git.listBranches(config.folder)
+  }
+
   /**
    * Initialize a git repository in a session's folder (so a non-repo session can
    * host parallel tasks). Returns the resulting git facts; throws git's message
@@ -409,7 +417,8 @@ export class SessionManager {
       kind: 'claude',
       title: 'claude',
       order: 0,
-      claudeArgs: [],
+      // A model picked for the task pins its claude via --model; absent = CLI default.
+      claudeArgs: opts.model ? ['--model', opts.model] : [],
       startMode: 'fresh'
     }
     const config: SessionConfig = {
@@ -725,11 +734,38 @@ export class SessionManager {
         event.url = pr.url
         event.output = pr.output
       } else {
-        const merge = await this.mergeWorktree(sessionId, true)
-        event.ok = merge.ok
-        event.conflict = merge.conflict
-        // Auto-merge never resolves conflicts unattended — leave that to the user.
-        event.output = merge.output
+        // GUARD: auto-merge is skipped — never attempted — when the base tree
+        // is dirty or the merge would conflict; the user gets a visible warning
+        // and merges manually. (mergeWorktree re-checks both, but checking here
+        // produces an explicit "skipped" message instead of a generic failure.)
+        const baseDirty = (await Git.dirtyCount(wt.baseFolder)) ?? 0
+        const conflicts =
+          baseDirty > 0
+            ? null
+            : await Git.mergeConflictFiles(wt.baseFolder, wt.branch, wt.baseBranch).catch(
+                () => null
+              )
+        if (baseDirty > 0) {
+          event.ok = false
+          event.output =
+            `Auto-merge skipped: the base working tree (${wt.baseFolder}) has ` +
+            `${baseDirty} uncommitted file(s). Commit or stash them, then merge ` +
+            `the task from the sidebar.`
+        } else if (conflicts && conflicts.length > 0) {
+          event.ok = false
+          event.conflict = true
+          event.output =
+            `Auto-merge skipped: merging "${wt.branch}" into "${wt.baseBranch}" would ` +
+            `conflict in:\n` +
+            conflicts.map((f) => `  • ${f}`).join('\n') +
+            `\n\nThe base repo was left untouched — merge from the sidebar to resolve.`
+        } else {
+          const merge = await this.mergeWorktree(sessionId, true)
+          event.ok = merge.ok
+          event.conflict = merge.conflict
+          // Auto-merge never resolves conflicts unattended — leave that to the user.
+          event.output = merge.output
+        }
       }
 
       // Mark it done so it fires at most once, even if the action failed: a

@@ -87,9 +87,14 @@ export class FeatureService {
    * Links the feature to the spawned session and flips it to 'implementing'.
    * Throws (with git's message) if the parent isn't a repo or the worktree fails.
    * `baseBranch` overrides which branch the task forks from and merges back
-   * into (used by auto-expand to keep its growth on a dedicated branch).
+   * into (used by auto-expand to keep its growth on a dedicated branch);
+   * `model` pins the task claude's model (used by the Conductor's approval card).
    */
-  async implement(featureId: string, baseBranch?: string): Promise<SessionInfo> {
+  async implement(
+    featureId: string,
+    baseBranch?: string,
+    model?: 'opus' | 'sonnet' | 'haiku'
+  ): Promise<SessionInfo> {
     const feature = this.features.find((f) => f.id === featureId)
     if (!feature) throw new Error('Unknown feature')
     const parent = this.sessions.getConfig(feature.sessionId)
@@ -106,7 +111,8 @@ export class FeatureService {
       initialPrompt: implementPrompt(feature),
       // Carry the feature's PR/merge preference onto the implementing task.
       completion: feature.completion,
-      autoComplete: feature.autoComplete
+      autoComplete: feature.autoComplete,
+      model
     })
 
     // The worktree folder exists once createWorktreeSession resolves; the prompt

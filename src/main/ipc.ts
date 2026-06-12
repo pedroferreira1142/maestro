@@ -4,6 +4,8 @@ import { writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
 import {
+  ConductorImage,
+  ConductorTaskOptions,
   FactoryArtifactKind,
   Feature,
   RepoCategory,
@@ -34,6 +36,9 @@ import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
 import { UsageLimitsService } from './UsageLimits'
 import { UsageService } from './UsageService'
+
+/** Attachment scope (folder name) for images pasted into the Conductor chat. */
+const CONDUCTOR_ATTACH_SCOPE = 'conductor'
 
 /** Tokenize a command template respecting double quotes. */
 function tokenize(template: string): string[] {
@@ -106,6 +111,7 @@ export function registerIpc(
   ipcMain.handle('git:fileDiff', (_e, sessionId: string, path: string) =>
     sessions.getGitFileDiff(sessionId, path)
   )
+  ipcMain.handle('git:branches', (_e, sessionId: string) => sessions.listBranches(sessionId))
 
   // --- repo checkpoints (working-tree safety net) ---
   ipcMain.handle('checkpoint:create', (_e, sessionId: string, label: string) =>
@@ -188,11 +194,15 @@ export function registerIpc(
 
   // --- conductor (app-level AI chat over all sessions) ---
   ipcMain.handle('conductor:list', () => conductor.list())
-  ipcMain.handle('conductor:send', (_e, text: string, tagSessionId?: string | null) =>
-    conductor.send(text, tagSessionId ?? null)
+  ipcMain.handle(
+    'conductor:send',
+    (_e, text: string, tagSessionId?: string | null, images?: ConductorImage[]) =>
+      conductor.send(text, tagSessionId ?? null, images ?? [])
   )
-  ipcMain.handle('conductor:approve', (_e, messageId: string, actionId: string) =>
-    conductor.approve(messageId, actionId)
+  ipcMain.handle(
+    'conductor:approve',
+    (_e, messageId: string, actionId: string, options?: ConductorTaskOptions) =>
+      conductor.approve(messageId, actionId, options)
   )
   ipcMain.handle('conductor:approveAll', (_e, messageId: string) =>
     conductor.approveAll(messageId)
@@ -201,6 +211,22 @@ export function registerIpc(
     conductor.reject(messageId, actionId)
   )
   ipcMain.handle('conductor:clear', () => conductor.clear())
+  ipcMain.handle('conductor:taskDefaults', (_e, sessionId: string) =>
+    conductor.getTaskDefaults(sessionId)
+  )
+  // Conductor chat image attachments. They live under their own fixed scope
+  // ('conductor', a name UUID session ids can never collide with) inside the
+  // same userData/attachments root the per-session chat images use.
+  ipcMain.handle('conductor:attachClipboard', () => attachClipboardImage(CONDUCTOR_ATTACH_SCOPE))
+  ipcMain.handle('conductor:attachFile', (_e, srcPath: string) =>
+    attachImageFile(CONDUCTOR_ATTACH_SCOPE, srcPath)
+  )
+  ipcMain.handle('conductor:attachData', (_e, name: string, bytes: Uint8Array) =>
+    attachImageData(CONDUCTOR_ATTACH_SCOPE, name, bytes)
+  )
+  ipcMain.handle('conductor:attachDelete', (_e, fileName: string) =>
+    deleteAttachment(CONDUCTOR_ATTACH_SCOPE, fileName)
+  )
 
   // --- agent & skill factory (generate skills/agents from MCP sources) ---
   ipcMain.handle('factory:listSources', (_e, refresh?: boolean) => factory.listSources(refresh))

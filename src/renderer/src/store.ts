@@ -3,7 +3,9 @@ import type {
   AttachmentInfo,
   AutoExpandConfig,
   AutoExpandRun,
+  ConductorImage,
   ConductorMessage,
+  ConductorTaskOptions,
   FactoryArtifactKind,
   FactoryAudit,
   FactoryRun,
@@ -384,10 +386,14 @@ interface AppStore {
   loadConductor(): Promise<void>
   /** Replace the conversation (pushed from main on every change). */
   applyConductor(messages: ConductorMessage[]): void
-  /** Send a user message to the Conductor. */
-  sendConductor(text: string): Promise<void>
-  /** Approve (run) one proposed Conductor action. */
-  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Send a user message (with optional attached images) to the Conductor. */
+  sendConductor(text: string, images?: ConductorImage[]): Promise<void>
+  /** Approve (run) one proposed Conductor action, with optional task options. */
+  approveConductorAction(
+    messageId: string,
+    actionId: string,
+    options?: ConductorTaskOptions
+  ): Promise<void>
   /** Approve every non-destructive proposed action on a turn. */
   approveAllConductorActions(messageId: string): Promise<void>
   /** Reject one proposed Conductor action. */
@@ -1455,13 +1461,13 @@ export const useStore = create<AppStore>()((set, get) => ({
     void get().refresh()
   },
 
-  async sendConductor(text) {
-    if (!text.trim()) return
-    await window.api.sendConductor(text, get().conductorTagId)
+  async sendConductor(text, images) {
+    if (!text.trim() && !images?.length) return
+    await window.api.sendConductor(text, get().conductorTagId, images)
   },
 
-  async approveConductorAction(messageId, actionId) {
-    await window.api.approveConductorAction(messageId, actionId)
+  async approveConductorAction(messageId, actionId, options) {
+    await window.api.approveConductorAction(messageId, actionId, options)
   },
 
   async approveAllConductorActions(messageId) {

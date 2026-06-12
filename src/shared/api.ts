@@ -1,7 +1,10 @@
 import type {
   AttachmentInfo,
   AutoExpandRun,
+  BranchListing,
+  ConductorImage,
   ConductorMessage,
+  ConductorTaskOptions,
   DirEntry,
   FactoryArtifactKind,
   FactoryAudit,
@@ -54,6 +57,8 @@ export interface CreateWorktreeOpts {
   completion?: WorktreeCompletion
   /** When true, Maestro auto-runs `completion` once claude finishes the task. */
   autoComplete?: boolean
+  /** Model alias for the task's claude (`--model <alias>`); absent = CLI default. */
+  model?: 'opus' | 'sonnet' | 'haiku'
 }
 
 export type Unsubscribe = () => void
@@ -106,6 +111,8 @@ export interface Api {
   gitChangedFiles(sessionId: string): Promise<GitFileChange[]>
   /** Unified diff of one file's working-tree state against HEAD (path is repo-root-relative). */
   gitFileDiff(sessionId: string, path: string): Promise<GitFileDiff>
+  /** Local branches + default branch of a session's repo (for the base-branch picker). */
+  gitBranches(sessionId: string): Promise<BranchListing>
 
   // repo checkpoints (a working-tree safety net taken before a risky prompt)
   /** Snapshot the working tree into a labeled checkpoint. Throws on git failure. */
@@ -190,11 +197,24 @@ export interface Api {
   /**
    * Send a user message; the assistant turn is pushed via onConductorChanged.
    * `tagSessionId` focuses the turn on a single session (its repo, its state),
-   * or null/omitted for the cross-repo conductor.
+   * or null/omitted for the cross-repo conductor. `images` are previously
+   * attached files (conductorAttach*) the planner is told to Read.
    */
-  sendConductor(text: string, tagSessionId?: string | null): Promise<void>
-  /** Approve one proposed action on an assistant turn (runs it). */
-  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  sendConductor(
+    text: string,
+    tagSessionId?: string | null,
+    images?: ConductorImage[]
+  ): Promise<void>
+  /**
+   * Approve one proposed action on an assistant turn (runs it). For task-creating
+   * actions, `options` carries the approval card's choices (base branch, model,
+   * PR/auto-merge) and is persisted as that repo's defaults.
+   */
+  approveConductorAction(
+    messageId: string,
+    actionId: string,
+    options?: ConductorTaskOptions
+  ): Promise<void>
   /** Approve every non-destructive proposed action on an assistant turn. */
   approveAllConductorActions(messageId: string): Promise<void>
   /** Reject one proposed action without running it. */
@@ -203,6 +223,16 @@ export interface Api {
   clearConductor(): Promise<void>
   /** Fired whenever the conversation changes (new turn, action status). */
   onConductorChanged(cb: (messages: ConductorMessage[]) => void): Unsubscribe
+  /** Save the clipboard image as a Conductor chat attachment; null when no image. */
+  conductorAttachClipboardImage(): Promise<AttachmentInfo | null>
+  /** Copy an image file (dropped from the OS) into the Conductor's attachments. */
+  conductorAttachImageFile(srcPath: string): Promise<AttachmentInfo | null>
+  /** Save raw image bytes (pasted/dropped content without a path). */
+  conductorAttachImageData(name: string, bytes: Uint8Array): Promise<AttachmentInfo | null>
+  /** Delete a not-yet-sent Conductor attachment (the preview's remove button). */
+  conductorDeleteAttachment(fileName: string): Promise<void>
+  /** Persisted per-repo defaults for the task-approval card, or null when none yet. */
+  getConductorTaskDefaults(sessionId: string): Promise<ConductorTaskOptions | null>
 
   // agent & skill factory (generate skills/agents from connected MCP sources)
   /** Discover the connected MCP contexts the factory can mine (cached; refresh re-discovers). */

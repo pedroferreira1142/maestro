@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { tmpdir } from 'os'
 import { basename, dirname, join, resolve } from 'path'
 import type {
+  BranchListing,
   GitCommit,
   GitFileChange,
   GitFileDiff,
@@ -83,6 +84,39 @@ export async function worktreeInfo(folder: string): Promise<WorktreeInfo> {
   } catch {
     // git missing → treat as "not a repo" so the UI just hides the action.
     return { isRepo: false, repoRoot: null, branch: null }
+  }
+}
+
+/**
+ * Local branches of `folder`'s repo plus its default branch, for the
+ * Conductor's base-branch dropdown. The default branch is what origin/HEAD
+ * points at; when that isn't recorded locally we fall back to main, then
+ * master, then the current branch. Safe on any path (empty listing off-repo).
+ */
+export async function listBranches(folder: string): Promise<BranchListing> {
+  try {
+    const [refs, head] = await Promise.all([
+      git(folder, ['for-each-ref', 'refs/heads', '--sort=refname', '--format=%(refname:short)']),
+      git(folder, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    ])
+    if (refs.code !== 0) return { branches: [], current: null, defaultBranch: null }
+    const branches = refs.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const current = head.code === 0 && head.stdout.trim() !== 'HEAD' ? head.stdout.trim() : null
+
+    let defaultBranch: string | null = null
+    const originHead = await git(folder, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    if (originHead.code === 0) {
+      const name = originHead.stdout.trim().replace(/^origin\//, '')
+      if (branches.includes(name)) defaultBranch = name
+    }
+    if (!defaultBranch) {
+      defaultBranch =
+        ['main', 'master'].find((b) => branches.includes(b)) ??
+        (current && branches.includes(current) ? current : (branches[0] ?? null))
+    }
+    return { branches, current, defaultBranch }
+  } catch {
+    return { branches: [], current: null, defaultBranch: null }
   }
 }
 

@@ -575,6 +575,18 @@ export interface ConductorAction {
   result?: string
 }
 
+/**
+ * One image attached to a Conductor user turn. The file is saved under
+ * userData/attachments/conductor/ before sending; the planner is told to Read
+ * `path` so it can actually see the image.
+ */
+export interface ConductorImage {
+  /** Absolute path of the saved image file — what the planner Reads. */
+  path: string
+  /** Small data-URL preview shown in the chat history; absent when unavailable. */
+  thumb?: string
+}
+
 /** One turn in the Conductor conversation (persisted to userData/conductor.json). */
 export interface ConductorMessage {
   id: string
@@ -582,12 +594,53 @@ export interface ConductorMessage {
   /** Markdown for assistant turns; plain text for user turns. */
   text: string
   at: number
+  /** Images attached to a user turn (absent/empty when none). */
+  images?: ConductorImage[]
   /** Actions proposed by an assistant turn (absent/empty when none). */
   actions?: ConductorAction[]
   /** True while the assistant turn is still being generated. */
   pending?: boolean
   /** Turn-level failure (agent missing, timeout, or unparseable output). */
   error?: string
+}
+
+/** Model for a spawned task's claude; 'inherit' = no --model flag (CLI default). */
+export type ConductorTaskModel = 'inherit' | 'opus' | 'sonnet' | 'haiku'
+
+/**
+ * Options chosen on the Conductor's task-approval card (for
+ * create_worktree_task and author_feature-with-implement actions). Applied to
+ * the worktree task created on approval, and persisted per repo (parent
+ * session) as the defaults prefilled into the next proposal's card.
+ */
+export interface ConductorTaskOptions {
+  /** Branch the task forks from and lands back into; '' = the repo's default branch. */
+  baseBranch: string
+  model: ConductorTaskModel
+  /** Push the branch and open a PR automatically when the task's claude finishes. */
+  createPr: boolean
+  /**
+   * Merge into base automatically when done. Guarded: the merge is skipped
+   * (with a visible warning) when the base tree is dirty or it would conflict.
+   */
+  autoMerge: boolean
+}
+
+export const DEFAULT_CONDUCTOR_TASK_OPTIONS: ConductorTaskOptions = {
+  baseBranch: '',
+  model: 'inherit',
+  createPr: false,
+  autoMerge: false
+}
+
+/** Local branches of a repo, for the approval card's base-branch dropdown. */
+export interface BranchListing {
+  /** All local branch names (refs/heads), sorted. */
+  branches: string[]
+  /** Currently checked-out branch, or null (detached HEAD / non-repo). */
+  current: string | null
+  /** The repo's default branch (origin/HEAD, else main/master, else current). */
+  defaultBranch: string | null
 }
 
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
@@ -877,6 +930,11 @@ export interface AppStateFile {
   actions: ReusableAction[]
   /** Features (with their specs) authored across all sessions. */
   features: Feature[]
+  /**
+   * Per-repo defaults for the Conductor's task-approval card, keyed by the
+   * parent session id. Updated every time options are chosen on approval.
+   */
+  taskOptionDefaults?: Record<string, ConductorTaskOptions>
 }
 
 export const DEFAULT_SETTINGS: Settings = {
