@@ -182,8 +182,12 @@ export interface Api {
   // conductor (app-level AI chat over all sessions; propose→confirm)
   /** The full Conductor conversation, oldest first. */
   listConductor(): Promise<ConductorMessage[]>
-  /** Send a user message; the assistant turn is pushed via onConductorChanged. */
-  sendConductor(text: string): Promise<void>
+  /**
+   * Send a user message; the assistant turn is pushed via onConductorChanged.
+   * `tagSessionId` focuses the turn on a single session (its repo, its state),
+   * or null/omitted for the cross-repo conductor.
+   */
+  sendConductor(text: string, tagSessionId?: string | null): Promise<void>
   /** Approve one proposed action on an assistant turn (runs it). */
   approveConductorAction(messageId: string, actionId: string): Promise<void>
   /** Approve every non-destructive proposed action on an assistant turn. */

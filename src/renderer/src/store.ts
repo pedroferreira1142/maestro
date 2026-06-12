@@ -210,6 +210,11 @@ interface AppStore {
   view: 'session' | 'conductor'
   /** The Conductor conversation, oldest first (pushed from main). */
   conductorMessages: ConductorMessage[]
+  /**
+   * The session the Conductor chat is focused ("tagged") on, or null for the
+   * cross-repo conductor. When set, sends scope the planner to that session.
+   */
+  conductorTagId: string | null
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -354,8 +359,12 @@ interface AppStore {
   closeBroadcast(): void
   /** Queue one prompt onto several sessions at once (broadcast dialog). */
   broadcastPrompt(sessionIds: string[], text: string): Promise<void>
-  /** Switch the main area to the Conductor chat. */
+  /** Switch the main area to the Conductor chat (keeping any current focus). */
   openConductor(): void
+  /** Open the Conductor focused ("tagged") on a specific session. */
+  openConductorForSession(id: string): void
+  /** Set or clear the Conductor's focused session (null = all sessions). */
+  setConductorTag(id: string | null): void
   /** Load the persisted Conductor conversation. */
   loadConductor(): Promise<void>
   /** Replace the conversation (pushed from main on every change). */
@@ -418,6 +427,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   broadcastOpen: false,
   view: 'session',
   conductorMessages: [],
+  conductorTagId: null,
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -477,7 +487,9 @@ export const useStore = create<AppStore>()((set, get) => ({
       // Drop cached merge-readiness for sessions that no longer exist.
       worktreeStates: Object.fromEntries(
         Object.entries(st.worktreeStates).filter(([id]) => ids.has(id))
-      )
+      ),
+      // Clear the Conductor focus if its session was closed/removed.
+      conductorTagId: st.conductorTagId && ids.has(st.conductorTagId) ? st.conductorTagId : null
     }))
     // Seed badges for worktree sessions we haven't checked yet (new tasks,
     // app startup) so they don't sit empty until the next poll tick.
@@ -1366,6 +1378,14 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({ view: 'conductor' })
   },
 
+  openConductorForSession(id) {
+    set({ view: 'conductor', conductorTagId: get().sessions.some((s) => s.config.id === id) ? id : null })
+  },
+
+  setConductorTag(id) {
+    set({ conductorTagId: id && get().sessions.some((s) => s.config.id === id) ? id : null })
+  },
+
   async loadConductor() {
     set({ conductorMessages: await window.api.listConductor() })
   },
@@ -1378,7 +1398,7 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   async sendConductor(text) {
     if (!text.trim()) return
-    await window.api.sendConductor(text)
+    await window.api.sendConductor(text, get().conductorTagId)
   },
 
   async approveConductorAction(messageId, actionId) {

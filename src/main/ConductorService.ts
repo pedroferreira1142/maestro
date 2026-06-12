@@ -106,11 +106,18 @@ export class ConductorService {
    * headless planner, and surface any proposed actions. Ignored while a turn is
    * already in flight (the renderer disables the composer then). Never throws to
    * the caller — failures land as an `error` on the assistant turn.
+   *
+   * `tagSessionId` focuses the turn on one session: the planner runs in that
+   * repo, sees only that session's state, and defaults its actions to it. Null
+   * (or an id that no longer exists) keeps the cross-repo conductor behaviour.
    */
-  async send(text: string): Promise<void> {
+  async send(text: string, tagSessionId: string | null = null): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed || this.busy) return
     this.busy = true
+
+    // Only honour the tag if it still points at a real session.
+    const focusId = tagSessionId && this.sessions.getConfig(tagSessionId) ? tagSessionId : null
 
     const userMsg: ConductorMessage = {
       id: randomUUID(),
@@ -129,9 +136,9 @@ export class ConductorService {
     this.persistAndBroadcast()
 
     try {
-      const snapshot = await this.buildSnapshot()
-      const prompt = this.buildPrompt(snapshot, userMsg.text)
-      const cwd = this.plannerCwd()
+      const snapshot = await this.buildSnapshot(focusId)
+      const prompt = this.buildPrompt(snapshot, userMsg.text, focusId)
+      const cwd = this.plannerCwd(focusId)
       const out = await runHeadlessClaude({
         cwd,
         prompt,
@@ -316,17 +323,26 @@ export class ConductorService {
 
   // ---------- planner ----------
 
-  /** The repo the planner runs in: the active session's folder, else the app cwd. */
-  private plannerCwd(): string {
-    const activeId = this.persistence.state.activeSessionId
-    const active = activeId ? this.sessions.getConfig(activeId) : undefined
-    return active && existsSync(active.folder) ? active.folder : process.cwd()
+  /**
+   * The repo the planner runs in: the focused session's folder when tagged,
+   * else the active session's, else the app cwd.
+   */
+  private plannerCwd(focusId: string | null): string {
+    const id = focusId ?? this.persistence.state.activeSessionId
+    const cfg = id ? this.sessions.getConfig(id) : undefined
+    return cfg && existsSync(cfg.folder) ? cfg.folder : process.cwd()
   }
 
-  /** Build the compact cross-repo snapshot the planner reasons over. */
-  private async buildSnapshot(): Promise<unknown> {
+  /**
+   * Build the compact snapshot the planner reasons over. Without a focus it
+   * covers every session; with one it is scoped to just that session (full
+   * detail) so the chat works "into that session only".
+   */
+  private async buildSnapshot(focusId: string | null): Promise<unknown> {
     const activeId = this.persistence.state.activeSessionId
-    const list = this.sessions.list()
+    const list = focusId
+      ? this.sessions.list().filter((s) => s.config.id === focusId)
+      : this.sessions.list()
     const sessions = await Promise.all(
       list.map(async (s) => {
         const c = s.config
@@ -379,11 +395,12 @@ export class ConductorService {
         return entry
       })
     )
-    return { sessions }
+    return focusId ? { focusedSessionId: focusId, sessions } : { sessions }
   }
 
   /** Compose the full planner prompt: role, action catalog, snapshot, history, ask. */
-  private buildPrompt(snapshot: unknown, latest: string): string {
+  private buildPrompt(snapshot: unknown, latest: string, focusId: string | null): string {
+    const focusName = focusId ? this.sessions.getConfig(focusId)?.name : undefined
     // Recent conversation context (exclude the just-added pending assistant turn).
     const history = this.messages
       .filter((m) => !m.pending && (m.text || (m.actions && m.actions.length)))
@@ -408,7 +425,16 @@ export class ConductorService {
       'user approves with a click. Use the read-only tools available to you (Read, Glob, Grep,',
       'git log/status/diff) to inspect repos before answering when it helps.',
       '',
-      'LIVE STATE SNAPSHOT (all sessions; use the real ids/folders from here):',
+      focusName
+        ? `FOCUS: the user has tagged the session “${focusName}” (id ${focusId}). This chat is ` +
+          'scoped to that session ONLY — answer about it and default every action you propose ' +
+          '(sessionId, parentSessionId, etc.) to it. The snapshot below contains only that ' +
+          'session. You are running inside its repo, so Read/Glob/Grep/git operate on it ' +
+          'directly. Do NOT propose actions on other sessions unless the user explicitly asks.'
+        : '',
+      focusName
+        ? `LIVE STATE SNAPSHOT (the focused session “${focusName}”; use the real id/folder from here):`
+        : 'LIVE STATE SNAPSHOT (all sessions; use the real ids/folders from here):',
       '```json',
       JSON.stringify(snapshot, null, 2),
       '```',

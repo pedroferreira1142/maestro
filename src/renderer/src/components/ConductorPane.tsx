@@ -101,6 +101,40 @@ const EXAMPLES = [
   'Which of my worktree tasks are ready to merge?'
 ]
 
+const FOCUSED_EXAMPLES = [
+  'What’s the current state of this session?',
+  'Add a feature here and start building it.',
+  'Queue a prompt to run the tests.',
+  'Is this task ready to merge?'
+]
+
+/**
+ * Header control to focus ("tag") the chat on a single session. Picking a
+ * session scopes the planner to it; "All sessions" clears the focus.
+ */
+function FocusPicker(): JSX.Element {
+  const sessions = useStore((s) => s.sessions)
+  const tagId = useStore((s) => s.conductorTagId)
+  const setTag = useStore((s) => s.setConductorTag)
+  return (
+    <label className="conductor-focus" title="Scope this chat to one session">
+      <span className="conductor-focus-mark">📍</span>
+      <select
+        className="conductor-focus-select"
+        value={tagId ?? ''}
+        onChange={(e) => setTag(e.target.value || null)}
+      >
+        <option value="">All sessions</option>
+        {sessions.map((s) => (
+          <option key={s.config.id} value={s.config.id}>
+            {s.config.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 /**
  * The Conductor chat surface (the app-level "Maestro" home). Renders the
  * persisted conversation, lets the user approve/reject the AI's proposed
@@ -111,6 +145,7 @@ export function ConductorPane(): JSX.Element {
   const messages = useStore((s) => s.conductorMessages)
   const sendConductor = useStore((s) => s.sendConductor)
   const clearConductor = useStore((s) => s.clearConductor)
+  const focused = useStore((s) => s.sessions.find((x) => x.config.id === s.conductorTagId))
   const busy = messages.some((m) => m.pending)
   const [text, setText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -131,25 +166,38 @@ export function ConductorPane(): JSX.Element {
     <div className="conductor-pane">
       <div className="conductor-header">
         <div className="conductor-title">✦ Maestro — Conductor</div>
-        <button
-          className="btn ghost"
-          title="Clear conversation"
-          disabled={messages.length === 0}
-          onClick={() => void clearConductor()}
-        >
-          Clear chat
-        </button>
+        <div className="row">
+          <FocusPicker />
+          <button
+            className="btn ghost"
+            title="Clear conversation"
+            disabled={messages.length === 0}
+            onClick={() => void clearConductor()}
+          >
+            Clear chat
+          </button>
+        </div>
       </div>
 
       <div className="conductor-list" ref={listRef}>
         {messages.length === 0 ? (
           <div className="conductor-empty">
             <p>
-              I’m your conductor across every repo and session. Ask for an overview, or describe
-              work in plain language and I’ll propose actions you approve with a click.
+              {focused ? (
+                <>
+                  Focused on <strong>{focused.config.name}</strong> — I’ll answer about this
+                  session and propose actions scoped to it. Switch to “All sessions” in the header
+                  for the cross-repo view.
+                </>
+              ) : (
+                <>
+                  I’m your conductor across every repo and session. Ask for an overview, or describe
+                  work in plain language and I’ll propose actions you approve with a click.
+                </>
+              )}
             </p>
             <ul>
-              {EXAMPLES.map((e) => (
+              {(focused ? FOCUSED_EXAMPLES : EXAMPLES).map((e) => (
                 <li key={e}>{e}</li>
               ))}
             </ul>
@@ -162,7 +210,13 @@ export function ConductorPane(): JSX.Element {
       <div className="conductor-composer">
         <textarea
           className="conductor-input"
-          placeholder={busy ? 'Maestro is thinking…' : 'Ask Maestro, or describe what you want built…'}
+          placeholder={
+            busy
+              ? 'Maestro is thinking…'
+              : focused
+                ? `Ask Maestro about ${focused.config.name}…`
+                : 'Ask Maestro, or describe what you want built…'
+          }
           value={text}
           disabled={busy}
           onChange={(e) => setText(e.target.value)}

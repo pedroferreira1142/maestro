@@ -94,7 +94,8 @@ const api: Api = {
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
 
   listConductor: () => ipcRenderer.invoke('conductor:list'),
-  sendConductor: (text) => ipcRenderer.invoke('conductor:send', text),
+  sendConductor: (text, tagSessionId) =>
+    ipcRenderer.invoke('conductor:send', text, tagSessionId ?? null),
   approveConductorAction: (messageId, actionId) =>
     ipcRenderer.invoke('conductor:approve', messageId, actionId),
   approveAllConductorActions: (messageId) =>
