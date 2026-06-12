@@ -29,6 +29,7 @@ import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
+import { UsageLimitsService } from './UsageLimits'
 import { UsageService } from './UsageService'
 
 /** Tokenize a command template respecting double quotes. */
@@ -258,6 +259,9 @@ export function registerIpc(
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
   const usage = new UsageService()
   ipcMain.handle('usage:get', () => usage.snapshot())
+  // Subscription plan limits (the figures Claude Code's `/usage` shows).
+  const usageLimits = new UsageLimitsService()
+  ipcMain.handle('usage:limits', () => usageLimits.limits())
 
   // --- transcript export (save dialog + file write, on the renderer's behalf) ---
   ipcMain.handle(

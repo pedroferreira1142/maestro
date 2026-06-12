@@ -136,6 +136,7 @@ const api: Api = {
     }
   },
   getUsage: () => ipcRenderer.invoke('usage:get'),
+  getUsageLimits: () => ipcRenderer.invoke('usage:limits'),
 
   pickBackgroundImage: () => ipcRenderer.invoke('background:pick'),
   getBackgroundImage: () => ipcRenderer.invoke('background:get'),
