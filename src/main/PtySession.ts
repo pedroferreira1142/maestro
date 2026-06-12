@@ -143,7 +143,9 @@ export class PtySession {
   constructor(
     readonly config: TerminalConfig,
     private folder: string,
-    private cb: PtyCallbacks
+    private cb: PtyCallbacks,
+    /** Per-session env overrides, overlaid on process.env at spawn time. */
+    private sessionEnv: Record<string, string> = {}
   ) {
     this.detector = new StatusDetector(
       (s) => cb.onStatus(config.id, s),
@@ -181,6 +183,13 @@ export class PtySession {
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined) env[k] = v
+    }
+    // Overlay the session's own variables on top of the inherited environment:
+    // a per-session entry overrides an inherited one of the same name, while
+    // everything the session doesn't define (PATH, …) is preserved. Empty or
+    // whitespace-only keys are ignored so they never reach the spawned process.
+    for (const [k, v] of Object.entries(this.sessionEnv)) {
+      if (k.trim()) env[k] = v
     }
 
     try {

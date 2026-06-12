@@ -220,9 +220,11 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const newWorktreeTask = useStore((s) => s.newWorktreeTask)
   const mergeWorktree = useStore((s) => s.mergeWorktree)
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
+  const openEnvEditor = useStore((s) => s.openEnvEditor)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
   const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const queueBtnRef = useRef<HTMLButtonElement>(null)
 
   const id = session.config.id
@@ -250,6 +252,10 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       style={session.config.color ? { borderLeftColor: session.config.color } : undefined}
       title={`${session.config.folder}\n${session.status} · Ctrl+${index + 1}`}
       onClick={() => setActive(id)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
       <span className={`glyph status-${session.status}`}>{STATUS_GLYPH[session.status]}</span>
       {watchdogTerm && <WatchdogBadge terminal={watchdogTerm} />}
@@ -330,6 +336,34 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       </button>
       {queueAnchor && (
         <QueuePopover session={session} anchor={queueAnchor} onClose={() => setQueueAnchor(null)} />
+      )}
+      {menu && (
+        <div
+          className="queue-overlay"
+          onClick={(e) => {
+            e.stopPropagation()
+            setMenu(null)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setMenu(null)
+          }}
+        >
+          <div
+            className="context-menu"
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                setMenu(null)
+                openEnvEditor(id)
+              }}
+            >
+              Environment variables…
+            </button>
+          </div>
+        </div>
       )}
       {!worktree && (
         <button

@@ -154,6 +154,13 @@ export interface SessionConfig {
   expandedPaths: string[]
   /** Context-profile category for this repo; null = leave claude's defaults. */
   categoryId?: string | null
+  /**
+   * Per-session environment variables overlaid on the inherited process
+   * environment of every terminal this session spawns (claude and shells alike).
+   * A session entry overrides an inherited variable of the same name; absent =
+   * no overrides. Empty/whitespace-only keys are never stored.
+   */
+  env?: Record<string, string>
   /** Set when this session is a git-worktree parallel task; null otherwise. */
   worktree?: WorktreeMeta | null
   /** Background watcher agents configured for this session. */

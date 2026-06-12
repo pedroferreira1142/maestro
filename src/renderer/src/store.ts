@@ -168,6 +168,8 @@ interface AppStore {
   pendingWorktree: PendingWorktree | null
   /** Whether the category-management dialog is open. */
   categoriesOpen: boolean
+  /** The session whose environment-variables editor is open; null when closed. */
+  envEditorSessionId: string | null
   /** Saved reusable actions (shell commands), shared across sessions. */
   actions: ReusableAction[]
   /** Action create/edit dialog payload; non-null while the dialog is open. */
@@ -246,6 +248,14 @@ interface AppStore {
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
   openCategories(): void
   closeCategories(): void
+  openEnvEditor(sessionId: string): void
+  closeEnvEditor(): void
+  /**
+   * Persist a session's per-session environment variables, then restart its
+   * affected running terminals (resume for claude, fresh for shells) so the new
+   * environment takes effect without the user restarting them by hand.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): Promise<void>
   loadActions(): Promise<void>
   /** Create or update one action (upsert by id). */
   saveAction(action: ReusableAction): Promise<void>
@@ -353,6 +363,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   pendingNewSession: null,
   pendingWorktree: null,
   categoriesOpen: false,
+  envEditorSessionId: null,
   actions: [],
   actionEditor: null,
   sentinelRuns: {},
@@ -766,6 +777,26 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeCategories() {
     set({ categoriesOpen: false })
+  },
+
+  openEnvEditor(sessionId) {
+    set({ envEditorSessionId: sessionId })
+  },
+
+  closeEnvEditor() {
+    set({ envEditorSessionId: null })
+  },
+
+  async setSessionEnv(sessionId, env) {
+    const restartIds = await window.api.setSessionEnv(sessionId, env)
+    // Env is only read at spawn time, so restart the affected running terminals.
+    // Claude resumes (--continue keeps the conversation); shells respawn fresh.
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    for (const id of restartIds) {
+      const kind = session?.terminals.find((t) => t.config.id === id)?.config.kind
+      await get().restartTerminal(id, kind === 'claude' ? 'resume' : 'fresh')
+    }
+    await get().refresh()
   },
 
   async loadActions() {
