@@ -686,6 +686,28 @@ export class SessionManager {
   }
 
   /**
+   * Replace a session's per-session environment map and report which of its
+   * terminals must be restarted for the new environment to take effect — env is
+   * only read by a process at spawn time. Unlike category, env reaches every
+   * terminal (claude and shells alike), so all *currently-running* terminals are
+   * reported; terminals that aren't running are left alone (not force-started).
+   * Empty/whitespace-only keys are dropped, and an empty map clears the field.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): string[] {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    const cleaned: Record<string, string> = {}
+    for (const [k, v] of Object.entries(env)) {
+      const key = k.trim()
+      if (key) cleaned[key] = v
+    }
+    config.env = Object.keys(cleaned).length > 0 ? cleaned : undefined
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+    return config.terminals.filter((t) => this.ptys.get(t.id)?.alive).map((t) => t.id)
+  }
+
+  /**
    * Replace the category definitions. Changes take effect for a session the
    * next time its claude terminal starts or is restarted (we don't force-restart
    * running sessions here).
@@ -974,17 +996,22 @@ export class SessionManager {
     mode: StartMode,
     history?: string
   ): void {
-    const session = new PtySession(terminal, config.folder, {
-      onData: (id, data) => {
-        this.getWin()?.webContents.send('pty:data', id, data)
+    const session = new PtySession(
+      terminal,
+      config.folder,
+      {
+        onData: (id, data) => {
+          this.getWin()?.webContents.send('pty:data', id, data)
+        },
+        onStatus: (id, status) => this.handleStatus(id, status),
+        onExit: () => {
+          this.getWin()?.webContents.send('session:changed')
+        },
+        // Snapshot lazily at write time — the store throttles to ~1 write/s.
+        onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
       },
-      onStatus: (id, status) => this.handleStatus(id, status),
-      onExit: () => {
-        this.getWin()?.webContents.send('session:changed')
-      },
-      // Snapshot lazily at write time — the store throttles to ~1 write/s.
-      onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
-    })
+      config.env ?? {}
+    )
     if (history) session.seedHistory(history + SCROLLBACK_DIVIDER)
     this.ptys.set(terminal.id, session)
     session.spawn(mode)

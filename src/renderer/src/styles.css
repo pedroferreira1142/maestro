@@ -2863,6 +2863,39 @@ body {
   color: var(--accent);
 }
 
+/* ---------- per-session environment variables ---------- */
+
+.env-row .env-key,
+.env-row .env-value {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.env-row .env-key {
+  flex: 0 0 40%;
+}
+
+.env-row .env-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.env-row .env-key:focus,
+.env-row .env-value:focus {
+  border-color: var(--accent);
+}
+
+.env-row .env-eq {
+  color: var(--dim);
+  flex: none;
+}
+
 .feature-actions {
   display: flex;
   align-items: center;

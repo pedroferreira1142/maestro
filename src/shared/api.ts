@@ -122,6 +122,12 @@ export interface Api {
   saveCategories(categories: RepoCategory[]): Promise<void>
   /** Reassign a session's category; returns the claude terminal ids to restart. */
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<string[]>
+  /**
+   * Replace a session's per-session environment variables; returns the ids of
+   * its currently-running terminals (claude + shells) to restart so the new
+   * environment takes effect. Empty/whitespace-only keys are dropped.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): Promise<string[]>
   listClaudeSkills(): Promise<SkillInfo[]>
   /** User-scope MCP servers from ~/.claude.json, offered as one-click picks. */
   listUserMcpServers(): Promise<RepoCategory['mcpServers']>

@@ -148,6 +148,9 @@ export function registerIpc(
   ipcMain.handle('session:setCategory', (_e, sessionId: string, categoryId: string | null) =>
     sessions.setSessionCategory(sessionId, categoryId)
   )
+  ipcMain.handle('session:setEnv', (_e, sessionId: string, env: Record<string, string>) =>
+    sessions.setSessionEnv(sessionId, env)
+  )
   ipcMain.handle('claude:listSkills', () => scanSkills())
   ipcMain.handle('claude:listMcpServers', () => readUserMcpServers())
   ipcMain.handle('category:detect', (_e, folder: string) =>

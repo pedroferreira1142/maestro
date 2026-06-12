@@ -6,6 +6,7 @@ import { BroadcastDialog } from './components/BroadcastDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
 import { DiffViewer } from './components/DiffViewer'
+import { EnvVarsDialog } from './components/EnvVarsDialog'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
 import { GlobalSearchDialog } from './components/GlobalSearchDialog'
@@ -36,6 +37,7 @@ export default function App(): JSX.Element {
   const pendingNewSession = useStore((s) => s.pendingNewSession)
   const pendingWorktree = useStore((s) => s.pendingWorktree)
   const categoriesOpen = useStore((s) => s.categoriesOpen)
+  const envEditorSessionId = useStore((s) => s.envEditorSessionId)
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
   const featuresSessionId = useStore((s) => s.featuresSessionId)
@@ -194,6 +196,7 @@ export default function App(): JSX.Element {
       {pendingNewSession && <NewSessionDialog />}
       {pendingWorktree && <WorktreeTaskDialog />}
       {categoriesOpen && <CategoriesDialog />}
+      {envEditorSessionId && <EnvVarsDialog />}
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}
       {featuresSessionId && <FeaturesDialog />}

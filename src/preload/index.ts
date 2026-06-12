@@ -102,6 +102,7 @@ const api: Api = {
     ipcRenderer.invoke('categories:save', categories),
   setSessionCategory: (sessionId, categoryId) =>
     ipcRenderer.invoke('session:setCategory', sessionId, categoryId),
+  setSessionEnv: (sessionId, env) => ipcRenderer.invoke('session:setEnv', sessionId, env),
   listClaudeSkills: () => ipcRenderer.invoke('claude:listSkills'),
   listUserMcpServers: () => ipcRenderer.invoke('claude:listMcpServers'),
   detectCategory: (folder) => ipcRenderer.invoke('category:detect', folder),
