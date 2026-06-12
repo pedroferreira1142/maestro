@@ -185,7 +185,9 @@ export function registerIpc(
 
   // --- conductor (app-level AI chat over all sessions) ---
   ipcMain.handle('conductor:list', () => conductor.list())
-  ipcMain.handle('conductor:send', (_e, text: string) => conductor.send(text))
+  ipcMain.handle('conductor:send', (_e, text: string, tagSessionId?: string | null) =>
+    conductor.send(text, tagSessionId ?? null)
+  )
   ipcMain.handle('conductor:approve', (_e, messageId: string, actionId: string) =>
     conductor.approve(messageId, actionId)
   )

@@ -233,6 +233,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const completeWorktree = useStore((s) => s.completeWorktree)
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
   const openEnvEditor = useStore((s) => s.openEnvEditor)
+  const openConductorForSession = useStore((s) => s.openConductorForSession)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
   const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
@@ -377,6 +378,14 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
             style={{ left: menu.x, top: menu.y }}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              onClick={() => {
+                setMenu(null)
+                openConductorForSession(id)
+              }}
+            >
+              Ask Maestro about this session
+            </button>
             <button
               onClick={() => {
                 setMenu(null)
