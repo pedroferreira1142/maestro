@@ -318,6 +318,16 @@ export interface AutoExpandRun {
   taskSessionId: string | null
 }
 
+/** Outcome of saving an exported transcript via the native save dialog. */
+export interface TranscriptExportResult {
+  /** True when the user cancelled the save dialog — nothing was written. */
+  canceled: boolean
+  /** Absolute path the file was written to; present only on success. */
+  path?: string
+  /** Why the write failed (e.g. permission denied); present only on failure. */
+  error?: string
+}
+
 /** One commit in a repo's history, for the sidebar Git panel. */
 export interface GitCommit {
   /** Full 40-char SHA. */
@@ -464,6 +474,12 @@ export interface WorktreeTaskState {
   dirty: number
   /** Commits on the task branch not yet on the base branch; -1 if unknown. */
   ahead: number
+  /**
+   * Files that would conflict if the task branch were merged into base, from a
+   * read-only `git merge-tree` dry-run. [] = merge predicted clean, null = the
+   * prediction is unavailable (missing refs, old git, nothing to merge).
+   */
+  conflictFiles: string[] | null
 }
 
 export interface TerminalInfo {

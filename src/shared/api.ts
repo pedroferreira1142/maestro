@@ -22,6 +22,7 @@ import type {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  TranscriptExportResult,
   UsageSnapshot,
   WorktreeInfo,
   WorktreeTaskState
@@ -186,6 +187,17 @@ export interface Api {
   getBackgroundImage(): Promise<string | null>
   /** Remove the stored background image. */
   clearBackgroundImage(): Promise<void>
+
+  // transcript export
+  /**
+   * Open a native save dialog (defaulting into the session's folder with
+   * `fileName`) and write `content` there. Cancelling writes nothing.
+   */
+  exportTranscript(
+    sessionId: string,
+    fileName: string,
+    content: string
+  ): Promise<TranscriptExportResult>
 
   // misc
   openExternal(url: string): void

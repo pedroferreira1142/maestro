@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ActionDialog } from './components/ActionDialog'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
+import { BroadcastDialog } from './components/BroadcastDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
 import { DiffViewer } from './components/DiffViewer'
@@ -43,6 +44,8 @@ export default function App(): JSX.Element {
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
+  const broadcastOpen = useStore((s) => s.broadcastOpen)
+  const notice = useStore((s) => s.notice)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -198,6 +201,8 @@ export default function App(): JSX.Element {
       {backgroundDialogOpen && <BackgroundDialog />}
       {globalSearchOpen && <GlobalSearchDialog />}
       {paletteOpen && <CommandPalette />}
+      {broadcastOpen && <BroadcastDialog />}
+      {notice && <div className="app-notice">{notice}</div>}
     </div>
   )
 }

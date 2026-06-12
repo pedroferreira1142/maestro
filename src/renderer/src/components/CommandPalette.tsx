@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DirEntry } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { focusActiveTerminal } from '../termRegistry'
+import { copyTranscript, exportTranscript, transcriptTarget } from '../transcript'
 import { STATUS_GLYPH } from './SessionSidebar'
 
 /** Case-insensitive subsequence ("fuzzy") match: query chars appear in order. */
@@ -132,6 +133,23 @@ export function CommandPalette(): JSX.Element {
     }
     if (sessionItems.length > 0) out.push({ title: 'Sessions', items: sessionItems })
 
+    const BROADCAST_LABEL = 'Broadcast prompt to sessions…'
+    if (matches(BROADCAST_LABEL)) {
+      out.push({
+        title: 'Commands',
+        items: [
+          {
+            key: 'command:broadcast',
+            label: BROADCAST_LABEL,
+            run: () => {
+              st.closePalette()
+              st.openBroadcast()
+            }
+          }
+        ]
+      })
+    }
+
     if (activeId) {
       const actionItems: PaletteItem[] = actions
         .filter((a) => matches(a.name))
@@ -145,6 +163,34 @@ export function CommandPalette(): JSX.Element {
           }
         }))
       if (actionItems.length > 0) out.push({ title: 'Actions', items: actionItems })
+
+      // Transcript actions on the active session's focused terminal (falls
+      // back to its first terminal when a file/diff tab is focused).
+      const session = sessions.find((s) => s.config.id === activeId)
+      const term = session ? transcriptTarget(session) : null
+      if (term) {
+        const transcriptItems: PaletteItem[] = [
+          {
+            key: 'transcript:export',
+            label: 'Export transcript',
+            sub: term.config.title,
+            run: () => {
+              st.closePalette()
+              void exportTranscript(activeId, term.config.id)
+            }
+          },
+          {
+            key: 'transcript:copy',
+            label: 'Copy transcript',
+            sub: term.config.title,
+            run: () => {
+              st.closePalette()
+              copyTranscript(term.config.id)
+            }
+          }
+        ].filter((it) => matches(it.label))
+        if (transcriptItems.length > 0) out.push({ title: 'Transcript', items: transcriptItems })
+      }
 
       // Open tabs first, then recently changed files, then walk results —
       // deduplicated; the walk only contributes once the query has 2+ chars.

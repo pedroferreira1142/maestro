@@ -13,7 +13,8 @@ import type {
   SessionStatus,
   Settings,
   SkillInfo,
-  TerminalKind
+  TerminalKind,
+  WorktreeTaskState
 } from '../../shared/types'
 
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
@@ -38,6 +39,15 @@ export interface PendingWorktree {
   repoRoot: string
   baseBranch: string
 }
+
+/** How often the sidebar's merge-readiness badges are re-checked (spec: 15–60s). */
+const WORKTREE_STATE_POLL_MS = 30_000
+
+/**
+ * Delay between a session going idle and its readiness re-check, so a commit
+ * claude made right at the end of its turn is on disk before we look.
+ */
+const WORKTREE_STATE_SETTLE_MS = 2_000
 
 /** Human suffix for a merge alert describing the post-merge push outcome. */
 function pushNote(pushed: boolean | undefined): string {
@@ -185,6 +195,14 @@ interface AppStore {
   globalSearchOpen: boolean
   /** Whether the Ctrl+K command palette is open. */
   paletteOpen: boolean
+  /** Whether the broadcast-prompt dialog is open. */
+  broadcastOpen: boolean
+  /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
+  notice: string | null
+  /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
+  worktreeStates: Record<string, WorktreeTaskState>
+  /** Worktree sessions with a readiness check in flight (badge shows 'checking'). */
+  worktreeChecking: Record<string, boolean>
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -206,6 +224,8 @@ interface AppStore {
   cancelWorktreeTask(): void
   mergeWorktree(sessionId: string): Promise<void>
   removeWorktreeTask(sessionId: string): Promise<void>
+  /** Re-check one worktree task's merge readiness and cache it for the badge. */
+  refreshWorktreeState(sessionId: string): Promise<void>
   /** Force the Git panel to reload its status + history. */
   refreshGit(): void
   /** Append a prompt to a session's auto-dispatch queue. */
@@ -287,7 +307,19 @@ interface AppStore {
   openPalette(): void
   closePalette(): void
   togglePalette(): void
+  openBroadcast(): void
+  closeBroadcast(): void
+  /** Queue one prompt onto several sessions at once (broadcast dialog). */
+  broadcastPrompt(sessionIds: string[], text: string): Promise<void>
+  /** Show a brief confirmation message that dismisses itself. */
+  showNotice(text: string): void
 }
+
+/** How long a notice (brief confirmation) stays on screen. */
+const NOTICE_MS = 2000
+
+/** Identifies the latest showNotice call, so only it clears the message. */
+let noticeNonce = 0
 
 /** Default active tab for a session: its persisted active terminal, else first. */
 function defaultActive(session: SessionInfo): string {
@@ -322,6 +354,10 @@ export const useStore = create<AppStore>()((set, get) => ({
   attentionQueue: [],
   globalSearchOpen: false,
   paletteOpen: false,
+  broadcastOpen: false,
+  notice: null,
+  worktreeStates: {},
+  worktreeChecking: {},
 
   async init() {
     const [settings, savedActive, backgroundDataUrl] = await Promise.all([
@@ -338,6 +374,12 @@ export const useStore = create<AppStore>()((set, get) => ({
       sessions[0]?.config.id ??
       null
     get().setActive(active)
+    // Keep the sidebar's merge-readiness badges fresh without user action.
+    setInterval(() => {
+      for (const s of get().sessions) {
+        if (s.config.worktree) void get().refreshWorktreeState(s.config.id)
+      }
+    }, WORKTREE_STATE_POLL_MS)
   },
 
   async refresh() {
@@ -359,12 +401,24 @@ export const useStore = create<AppStore>()((set, get) => ({
       }
     }
     const stillActive = sessions.some((s) => s.config.id === activeId)
-    set({
+    const ids = new Set(sessions.map((s) => s.config.id))
+    set((st) => ({
       sessions,
       viewers: nextViewers,
       activeId: stillActive ? activeId : (sessions[0]?.config.id ?? null),
-      attentionQueue: reconcileAttentionQueue(get().attentionQueue, sessions)
-    })
+      attentionQueue: reconcileAttentionQueue(st.attentionQueue, sessions),
+      // Drop cached merge-readiness for sessions that no longer exist.
+      worktreeStates: Object.fromEntries(
+        Object.entries(st.worktreeStates).filter(([id]) => ids.has(id))
+      )
+    }))
+    // Seed badges for worktree sessions we haven't checked yet (new tasks,
+    // app startup) so they don't sit empty until the next poll tick.
+    for (const s of sessions) {
+      if (s.config.worktree && !get().worktreeStates[s.config.id]) {
+        void get().refreshWorktreeState(s.config.id)
+      }
+    }
   },
 
   setActive(id) {
@@ -590,6 +644,28 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.alert(`Couldn't remove the worktree:\n\n${(err as Error).message}`)
       await get().refresh()
     }
+  },
+
+  async refreshWorktreeState(sessionId) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    if (!session?.config.worktree) return
+    if (get().worktreeChecking[sessionId]) return // one check in flight is enough
+    set((st) => ({ worktreeChecking: { ...st.worktreeChecking, [sessionId]: true } }))
+    let state: WorktreeTaskState
+    try {
+      state = await window.api.worktreeState(sessionId)
+    } catch {
+      // Degrade silently to the 'unknown' badge — never a dialog or log spam.
+      state = { folderExists: false, dirty: -1, ahead: -1, conflictFiles: null }
+    }
+    set((st) => {
+      const worktreeChecking = { ...st.worktreeChecking }
+      delete worktreeChecking[sessionId]
+      return {
+        worktreeStates: { ...st.worktreeStates, [sessionId]: state },
+        worktreeChecking
+      }
+    })
   },
 
   async queueAdd(sessionId, text) {
@@ -885,6 +961,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   applyStatus(terminalId, status) {
+    const owner = get().sessions.find((s) => s.terminals.some((t) => t.config.id === terminalId))
+    const wasWorking = owner?.status === 'working'
     set((st) => {
       const sessions = st.sessions.map((s) => {
         if (!s.terminals.some((t) => t.config.id === terminalId)) return s
@@ -911,6 +989,17 @@ export const useStore = create<AppStore>()((set, get) => ({
       }
       return { sessions, attentionQueue }
     })
+    // Claude just finished a turn in a worktree task — re-check its merge
+    // readiness shortly, so the badge reflects commits it just made.
+    if (owner?.config.worktree && wasWorking) {
+      const now = get().sessions.find((s) => s.config.id === owner.config.id)
+      if (now && (now.status === 'idle' || now.status === 'needs-attention')) {
+        setTimeout(
+          () => void get().refreshWorktreeState(owner.config.id),
+          WORKTREE_STATE_SETTLE_MS
+        )
+      }
+    }
   },
 
   async loadAttachments(sessionId) {
@@ -992,6 +1081,29 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   togglePalette() {
     set((st) => ({ paletteOpen: !st.paletteOpen }))
+  },
+
+  openBroadcast() {
+    set({ broadcastOpen: true })
+  },
+
+  closeBroadcast() {
+    set({ broadcastOpen: false })
+  },
+
+  async broadcastPrompt(sessionIds, text) {
+    const trimmed = text.trim()
+    if (!trimmed || sessionIds.length === 0) return
+    await Promise.all(sessionIds.map((id) => window.api.queueAdd(id, trimmed)))
+    await get().refresh()
+  },
+
+  showNotice(text) {
+    const nonce = ++noticeNonce
+    set({ notice: text })
+    setTimeout(() => {
+      if (noticeNonce === nonce) set({ notice: null })
+    }, NOTICE_MS)
   },
 
   applyFsEvents(id, events) {

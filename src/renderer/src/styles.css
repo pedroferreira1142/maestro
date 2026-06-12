@@ -1174,6 +1174,56 @@ body {
   color: var(--accent);
 }
 
+/* Merge-readiness badge: the Merge button's predicted outcome, at a glance. */
+.merge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  font-size: 10px;
+  line-height: 15px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.merge-badge.clean {
+  color: var(--green);
+  border-color: rgba(76, 195, 138, 0.45);
+}
+
+.merge-badge.conflicts {
+  color: var(--attention);
+  border-color: rgba(226, 185, 61, 0.45);
+}
+
+/* 'no commits' and 'unknown' stay muted; 'unknown' a notch dimmer. */
+.merge-badge.unknown {
+  opacity: 0.65;
+}
+
+/* A (re-)check is in flight — pulse until the fresh result lands. */
+.merge-badge.checking {
+  animation: merge-badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes merge-badge-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Dirty marker: uncommitted files would need a commit-first merge. */
+.merge-badge-dirty {
+  color: var(--attention);
+  font-size: 12px;
+  line-height: 15px;
+}
+
 /* ---------- prompt queue ---------- */
 
 .session-entry .queue-btn {
@@ -1471,6 +1521,68 @@ body {
   border-radius: 4px;
   padding: 6px 10px;
   font-size: 12px;
+}
+
+/* ---------- broadcast-prompt dialog ---------- */
+
+.broadcast-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.broadcast-list-header .btn {
+  font-size: 11px;
+  padding: 1px 6px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.broadcast-list {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.broadcast-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.broadcast-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.broadcast-row:hover {
+  background: var(--panel-2);
+}
+
+.broadcast-row input[type='checkbox'] {
+  margin: 0;
+}
+
+.broadcast-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.broadcast-sub {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  padding-left: 8px;
 }
 
 /* ---------- global search palette ---------- */
@@ -2750,4 +2862,34 @@ body {
 
 .autoexpand-ideas li.chosen {
   color: var(--text);
+}
+
+/* ---------- app notice (brief auto-dismissing confirmation) ---------- */
+
+.app-notice {
+  position: fixed;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: notice-in 0.15s ease-out;
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }

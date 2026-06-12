@@ -29,6 +29,7 @@ import { FsService } from './FsService'
 import * as Git from './GitService'
 import { Persistence } from './Persistence'
 import { PtySession } from './PtySession'
+import { ScrollbackStore, SCROLLBACK_MAX_BYTES } from './ScrollbackStore'
 
 /** How long to wait before typing a worktree task's initial prompt into claude. */
 const INITIAL_PROMPT_DELAY_MS = 3500
@@ -59,6 +60,14 @@ const CLAUDE_SUBMIT_DELAY_MS = 300
  */
 const QUEUE_IDLE_DELAY_MS = 3000
 
+/**
+ * Printed between replayed scrollback and the live process output on restore.
+ * The leading reset guards against history ending mid-attribute; dim (SGR 2)
+ * keeps the row visually quiet.
+ */
+const SCROLLBACK_DIVIDER =
+  '\r\n\x1b[0m\x1b[2m── restored from previous session ──\x1b[0m\r\n\r\n'
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** True while a pid is still alive (signal 0 probe). */
@@ -88,6 +97,9 @@ export class SessionManager {
 
   /** Pending prompt-queue idle countdowns, keyed by session id. */
   private queueTimers = new Map<string, NodeJS.Timeout>()
+
+  /** On-disk tail of each terminal's output, replayed on app restart. */
+  private scrollback = new ScrollbackStore()
 
   constructor(
     private persistence: Persistence,
@@ -180,6 +192,7 @@ export class SessionManager {
       for (const terminal of config.terminals) {
         this.ptys.get(terminal.id)?.kill()
         this.ptys.delete(terminal.id)
+        this.scrollback.delete(terminal.id)
       }
     }
     this.fs.stop(id)
@@ -351,7 +364,9 @@ export class SessionManager {
   /** Live git facts about a worktree task (uncommitted files, commits ahead). */
   async getWorktreeTaskState(sessionId: string): Promise<WorktreeTaskState> {
     const config = this.getConfig(sessionId)
-    if (!config?.worktree) return { folderExists: false, dirty: -1, ahead: -1 }
+    if (!config?.worktree) {
+      return { folderExists: false, dirty: -1, ahead: -1, conflictFiles: null }
+    }
     const folderExists = existsSync(config.folder)
     const dirty = folderExists ? await Git.dirtyCount(config.folder) : null
     const ahead = await Git.aheadCount(
@@ -359,7 +374,23 @@ export class SessionManager {
       config.worktree.baseBranch,
       config.worktree.branch
     )
-    return { folderExists, dirty: dirty ?? -1, ahead: ahead ?? -1 }
+    // Predict merge conflicts only when there are commits to merge. merge-tree
+    // works entirely in-memory — no working tree, index, or HEAD is touched.
+    let conflictFiles: string[] | null = null
+    if (ahead !== null && ahead > 0) {
+      try {
+        conflictFiles = await Git.mergeConflictFiles(
+          config.worktree.baseFolder,
+          config.worktree.branch,
+          config.worktree.baseBranch
+        )
+      } catch {
+        conflictFiles = null // git missing/broken → 'unknown', never an error
+      }
+    } else if (ahead === 0) {
+      conflictFiles = [] // nothing to merge, trivially conflict-free
+    }
+    return { folderExists, dirty: dirty ?? -1, ahead: ahead ?? -1, conflictFiles }
   }
 
   /**
@@ -478,6 +509,7 @@ export class SessionManager {
       if (pty?.pid) pids.push(pty.pid)
       pty?.kill()
       this.ptys.delete(terminal.id)
+      this.scrollback.delete(terminal.id)
     }
     this.fs.stop(sessionId)
 
@@ -556,6 +588,7 @@ export class SessionManager {
     if (!config) return
     this.ptys.get(terminalId)?.kill()
     this.ptys.delete(terminalId)
+    this.scrollback.delete(terminalId)
     config.terminals = config.terminals.filter((t) => t.id !== terminalId)
     if (config.activeTerminalId === terminalId) {
       config.activeTerminalId = config.terminals[0]?.id ?? null
@@ -849,16 +882,22 @@ export class SessionManager {
   }
 
   restoreAll(): void {
+    const liveIds = new Set(this.state.sessions.flatMap((s) => s.terminals.map((t) => t.id)))
+    this.scrollback.prune(liveIds)
     for (const config of [...this.state.sessions].sort((a, b) => a.order - b.order)) {
       this.applyProfile(config)
       for (const terminal of config.terminals) {
-        this.spawnTerminal(config, terminal, terminal.startMode ?? 'fresh')
+        // Seed the previous run's saved output (if any) into the ring buffer
+        // so attach() replays it, divider, then the live process output.
+        const history = this.scrollback.load(terminal.id)
+        this.spawnTerminal(config, terminal, terminal.startMode ?? 'fresh', history || undefined)
       }
       this.fs.start(config.id, config.folder, config.expandedPaths)
     }
   }
 
   disposeAll(): void {
+    this.scrollback.flushAll()
     for (const timer of this.queueTimers.values()) clearTimeout(timer)
     this.queueTimers.clear()
     for (const pty of this.ptys.values()) pty.kill()
@@ -866,7 +905,12 @@ export class SessionManager {
     this.fs.stopAll()
   }
 
-  private spawnTerminal(config: SessionConfig, terminal: TerminalConfig, mode: StartMode): void {
+  private spawnTerminal(
+    config: SessionConfig,
+    terminal: TerminalConfig,
+    mode: StartMode,
+    history?: string
+  ): void {
     const session = new PtySession(terminal, config.folder, {
       onData: (id, data) => {
         this.getWin()?.webContents.send('pty:data', id, data)
@@ -874,8 +918,11 @@ export class SessionManager {
       onStatus: (id, status) => this.handleStatus(id, status),
       onExit: () => {
         this.getWin()?.webContents.send('session:changed')
-      }
+      },
+      // Snapshot lazily at write time — the store throttles to ~1 write/s.
+      onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
     })
+    if (history) session.seedHistory(history + SCROLLBACK_DIVIDER)
     this.ptys.set(terminal.id, session)
     session.spawn(mode)
   }

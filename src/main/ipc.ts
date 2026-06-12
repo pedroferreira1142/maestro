@@ -1,6 +1,7 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { spawn } from 'child_process'
-import { dirname } from 'path'
+import { writeFile } from 'fs/promises'
+import { dirname, join } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
 import {
   Feature,
@@ -9,7 +10,8 @@ import {
   SessionConfig,
   Settings,
   TerminalConfig,
-  TerminalKind
+  TerminalKind,
+  TranscriptExportResult
 } from '../shared/types'
 import {
   attachClipboardImage,
@@ -256,6 +258,35 @@ export function registerIpc(
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
   const usage = new UsageService()
   ipcMain.handle('usage:get', () => usage.snapshot())
+
+  // --- transcript export (save dialog + file write, on the renderer's behalf) ---
+  ipcMain.handle(
+    'transcript:export',
+    async (
+      _e,
+      sessionId: string,
+      fileName: string,
+      content: string
+    ): Promise<TranscriptExportResult> => {
+      const win = getWin()
+      if (!win) return { canceled: true }
+      const result = await dialog.showSaveDialog(win, {
+        title: 'Export transcript',
+        defaultPath: join(rootOf(sessionId), fileName),
+        filters: [
+          { name: 'Markdown', extensions: ['md'] },
+          { name: 'All files', extensions: ['*'] }
+        ]
+      })
+      if (result.canceled || !result.filePath) return { canceled: true }
+      try {
+        await writeFile(result.filePath, content, 'utf8')
+        return { canceled: false, path: result.filePath }
+      } catch (err) {
+        return { canceled: false, error: (err as Error).message }
+      }
+    }
+  )
 
   // --- misc ---
   ipcMain.on('shell:openExternal', (_e, url: string) => {

@@ -141,6 +141,9 @@ const api: Api = {
   getBackgroundImage: () => ipcRenderer.invoke('background:get'),
   clearBackgroundImage: () => ipcRenderer.invoke('background:clear'),
 
+  exportTranscript: (sessionId, fileName, content) =>
+    ipcRenderer.invoke('transcript:export', sessionId, fileName, content),
+
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: (text) => ipcRenderer.send('clipboard:write', text),
