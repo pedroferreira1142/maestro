@@ -1,5 +1,5 @@
 {
-  "name": "maestro",
+  "name": "claude-maestro",
   "version": "0.1.16",
   "description": "Maestro — run and conduct multiple Claude Code CLI sessions across repos in one window, with git-worktree parallel tasks",
   "main": "out/main/index.js",
@@ -10,7 +10,7 @@
     "url": "https://github.com/pedroferreira1142/maestro.git"
   },
   "bin": {
-    "maestro": "bin/maestro.mjs"
+    "claude-maestro": "bin/maestro.mjs"
   },
   "files": [
     "out",
@@ -79,6 +79,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "electron": "^33.3.0",
     "node-pty": "1.2.0-beta.13"
   },
   "devDependencies": {
@@ -96,7 +97,6 @@
     "@xterm/xterm": "^5.5.0",
     "codemirror": "^6.0.1",
     "dompurify": "^3.4.9",
-    "electron": "^33.3.0",
     "electron-builder": "^26.15.2",
     "electron-vite": "^3.0.0",
     "marked": "^18.0.5",

@@ -28,11 +28,16 @@ Requires the `claude` CLI on PATH (`npm i -g @anthropic-ai/claude-code`).
 - The app is unsigned: on first launch, right-click the app → **Open** (or
   `xattr -d com.apple.quarantine /Applications/Maestro.app`).
 
-**npx** (any OS with Node 20+; runs from source, slower first start):
+**npx / npm** (any OS with Node 20+; downloads Electron on first run):
 
 ```bash
-npx github:pedroferreira1142/maestro
+npx claude-maestro
+# or install the command globally:
+npm i -g claude-maestro && claude-maestro
 ```
+
+(Published to npm as [`claude-maestro`](https://www.npmjs.com/package/claude-maestro). You can also
+run the unpublished tip with `npx github:pedroferreira1142/maestro`.)
 
 ## Develop
 
