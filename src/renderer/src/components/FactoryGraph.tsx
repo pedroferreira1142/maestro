@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FactoryArtifact } from '../../../shared/types'
+import type { FactoryArtifactKind } from '../../../shared/types'
+
+/**
+ * A node of the connection graph. FactoryArtifact satisfies this structurally;
+ * installed agents (Agents tab) are mapped onto it so they join the same graph.
+ */
+export interface FactoryGraphNode {
+  name: string
+  kind: FactoryArtifactKind
+  description: string
+  relatedArtifacts: string[]
+}
 
 interface NodeState {
   x: number
@@ -25,7 +36,7 @@ export function FactoryGraph({
   artifacts,
   onOpen
 }: {
-  artifacts: FactoryArtifact[]
+  artifacts: FactoryGraphNode[]
   onOpen: (name: string) => void
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)

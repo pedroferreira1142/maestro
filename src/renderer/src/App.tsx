@@ -76,6 +76,7 @@ export default function App(): JSX.Element {
       window.api.onConductorChanged((msgs) => useStore.getState().applyConductor(msgs)),
       window.api.onFactoryChanged((state) => useStore.getState().applyFactoryState(state)),
       window.api.onFactoryRuns((runs) => useStore.getState().applyFactoryRuns(runs)),
+      window.api.onAgentsChanged((snapshot) => useStore.getState().applyAgentsSnapshot(snapshot)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)

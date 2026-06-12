@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AgentsSnapshot,
   AttachmentInfo,
   AutoExpandConfig,
   AutoExpandRun,
@@ -234,6 +235,8 @@ interface AppStore {
   factoryRuns: FactoryRun[]
   /** Registry↔disk reconciliation snapshot (missing files + unregistered artifacts on disk). */
   factoryAudit: FactoryAudit | null
+  /** Installed agents merged with the external agent-factory registry (Agents tab). */
+  agentsSnapshot: AgentsSnapshot | null
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -442,6 +445,12 @@ interface AppStore {
   addFactoryLesson(text: string): Promise<void>
   /** Delete one lesson. */
   deleteFactoryLesson(id: string): Promise<void>
+  /** Load the installed-agents snapshot (Agents tab), if not already loaded. */
+  loadAgents(): Promise<void>
+  /** Force a re-scan of the agents dirs + registry (manual refresh button). */
+  refreshAgents(): Promise<void>
+  /** Replace the agents snapshot (pushed from main on file-watch events). */
+  applyAgentsSnapshot(snapshot: AgentsSnapshot): void
   /** Show a brief confirmation message that dismisses itself. */
   showNotice(text: string): void
 }
@@ -497,6 +506,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   factoryState: { artifacts: [], topics: [], lessons: [] },
   factoryRuns: [],
   factoryAudit: null,
+  agentsSnapshot: null,
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -1508,6 +1518,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     ])
     set({ factoryState, factoryRuns })
     void get().loadFactoryAudit()
+    void get().loadAgents()
   },
 
   async loadFactorySources(refresh = false) {
@@ -1609,6 +1620,28 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   async deleteFactoryLesson(id) {
     await window.api.deleteFactoryLesson(id)
+  },
+
+  async loadAgents() {
+    try {
+      const agentsSnapshot = await window.api.getInstalledAgents()
+      set({ agentsSnapshot })
+    } catch {
+      // main not ready / IPC hiccup — the Agents tab shows its loading state
+    }
+  },
+
+  async refreshAgents() {
+    try {
+      const agentsSnapshot = await window.api.refreshInstalledAgents()
+      set({ agentsSnapshot })
+    } catch {
+      // keep the previous snapshot
+    }
+  },
+
+  applyAgentsSnapshot(snapshot) {
+    set({ agentsSnapshot: snapshot })
   },
 
   showNotice(text) {

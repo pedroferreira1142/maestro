@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
+  AgentsSnapshot,
   AutoExpandRun,
   ConductorImage,
   ConductorMessage,
@@ -144,6 +145,13 @@ const api: Api = {
   onFactoryChanged: (cb) =>
     subscribe('factory:changed', (state) => cb(state as FactoryState)),
   onFactoryRuns: (cb) => subscribe('factory:runs', (runs) => cb(runs as FactoryRun[])),
+
+  getInstalledAgents: () => ipcRenderer.invoke('agents:get'),
+  refreshInstalledAgents: () => ipcRenderer.invoke('agents:refresh'),
+  readInstalledAgent: (filePath) => ipcRenderer.invoke('agents:read', filePath),
+  revealInstalledAgent: (filePath) => ipcRenderer.invoke('agents:reveal', filePath),
+  onAgentsChanged: (cb) =>
+    subscribe('agents:changed', (snapshot) => cb(snapshot as AgentsSnapshot)),
 
   listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
   featureForTask: (sessionId) => ipcRenderer.invoke('feature:forTask', sessionId),
