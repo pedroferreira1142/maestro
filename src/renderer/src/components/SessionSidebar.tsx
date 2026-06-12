@@ -334,6 +334,7 @@ export function SessionSidebar(): JSX.Element {
   const openFeatures = useStore((s) => s.openFeatures)
   const openAutoExpand = useStore((s) => s.openAutoExpand)
   const openBackgroundDialog = useStore((s) => s.openBackgroundDialog)
+  const openBroadcast = useStore((s) => s.openBroadcast)
   const ordered = orderedSessions(sessions)
 
   return (
@@ -356,6 +357,13 @@ export function SessionSidebar(): JSX.Element {
             onClick={() => activeId && void openAutoExpand(activeId)}
           >
             ⚡
+          </button>
+          <button
+            className="btn ghost"
+            title="Broadcast a prompt to multiple sessions"
+            onClick={openBroadcast}
+          >
+            ⇶
           </button>
           <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
             ◫

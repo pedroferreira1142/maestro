@@ -1,0 +1,14 @@
+# Broadcast Prompt to Multiple Sessions
+
+Add a broadcast dialog that sends one prompt to several sessions at once, opened from a new command entry in the Ctrl+K palette (src/renderer/src/components/CommandPalette.tsx) and a button in the session sidebar header (src/renderer/src/components/SessionSidebar.tsx). The dialog lists all sessions that have a claude terminal — with their live status glyph and, for worktree tasks, the 'branch → baseBranch' sub-label — each with a checkbox, plus a multiline prompt input. Sending delivers the prompt to every selected session through the existing per-session prompt queue path (window.api.queueAdd, backed by SessionManager.queueAdd and dispatchQueuedPrompt in src/main/SessionManager.ts): sessions whose claude terminal is idle receive the prompt within a few seconds via the existing idle-countdown dispatch, while busy sessions keep it queued until their StatusDetector next reports idle. No new IPC channels are required; dialog open/close state follows the existing zustand store pattern (paletteOpen/openPalette in src/renderer/src/store.ts), and a new BroadcastDialog component is mounted from App.tsx alongside the other dialogs.
+
+## Specs
+
+- [ ] The Ctrl+K command palette contains a 'Broadcast prompt to sessions…' command (findable via the existing fuzzy match); selecting it closes the palette and opens the broadcast dialog.
+- [ ] The session sidebar header shows a broadcast button (with a tooltip) that opens the same dialog.
+- [ ] The dialog lists every session that has at least one claude terminal, each row showing a checkbox, the session name, its live status glyph using the same STATUS_GLYPH/status-color mapping as the sidebar, and for worktree tasks the 'branch → baseBranch' sub-label; sessions with no claude terminal do not appear.
+- [ ] The dialog has a Select all / Deselect all toggle, and a multiline prompt textarea; the send button is disabled until the prompt is non-empty and at least one session is checked.
+- [ ] The send button label states the target count (e.g. 'Send to 3 sessions'), serving as the confirmation of which sessions will receive the prompt.
+- [ ] On send, the prompt is appended to each selected session's prompt queue: a session whose claude terminal is idle receives the prompt typed and submitted into its conversation within a few seconds, while a working/needs-attention session keeps the prompt queued and it auto-sends when that session next sits idle (existing queue dispatch rules unchanged).
+- [ ] Immediately after sending, each target session's queue badge in the sidebar reflects the added prompt, and prompts still queued survive an app restart (existing promptQueue persistence in sessions.json).
+- [ ] Pressing Escape or clicking outside the dialog closes it without sending anything, and single-session prompt-queue behavior (QueuePopover add/remove/reorder) is unchanged.

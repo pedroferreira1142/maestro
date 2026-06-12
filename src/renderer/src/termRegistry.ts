@@ -39,7 +39,8 @@ export function focusActiveTerminal(): void {
     st.categoriesOpen ||
     st.actionEditor ||
     st.globalSearchOpen ||
-    st.paletteOpen
+    st.paletteOpen ||
+    st.broadcastOpen
   )
     return
   const el = document.activeElement as HTMLElement | null

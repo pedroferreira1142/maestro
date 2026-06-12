@@ -132,6 +132,23 @@ export function CommandPalette(): JSX.Element {
     }
     if (sessionItems.length > 0) out.push({ title: 'Sessions', items: sessionItems })
 
+    const BROADCAST_LABEL = 'Broadcast prompt to sessions…'
+    if (matches(BROADCAST_LABEL)) {
+      out.push({
+        title: 'Commands',
+        items: [
+          {
+            key: 'command:broadcast',
+            label: BROADCAST_LABEL,
+            run: () => {
+              st.closePalette()
+              st.openBroadcast()
+            }
+          }
+        ]
+      })
+    }
+
     if (activeId) {
       const actionItems: PaletteItem[] = actions
         .filter((a) => matches(a.name))
