@@ -492,6 +492,63 @@ export interface Feature {
   createdAt: number
 }
 
+// ---------- conductor (app-level AI chat over all sessions) ----------
+
+/**
+ * One management action the Conductor can take on the user's behalf. The
+ * headless planner proposes these; Maestro only runs one after the user
+ * approves it (per the propose→confirm model). `args` is kind-specific and
+ * validated in main before dispatch to an existing service.
+ */
+export type ConductorActionKind =
+  | 'create_session'
+  | 'author_feature'
+  | 'implement_feature'
+  | 'create_worktree_task'
+  | 'queue_prompt'
+  | 'broadcast_prompt'
+  | 'run_auto_expand'
+  | 'merge_worktree'
+  | 'remove_worktree'
+
+/**
+ * How dangerous an action is, derived in main from the kind (never trusted
+ * from the model): 'safe' = read-only/no side effect, 'write' = creates or
+ * queues work, 'destructive' = irreversible (merge, worktree removal).
+ */
+export type ConductorRisk = 'safe' | 'write' | 'destructive'
+
+export type ConductorActionStatus = 'proposed' | 'running' | 'done' | 'error' | 'rejected'
+
+/** A single proposed (then approved/run) management action. */
+export interface ConductorAction {
+  id: string
+  kind: ConductorActionKind
+  /** One-line human description shown on the approval card. */
+  summary: string
+  risk: ConductorRisk
+  /** Kind-specific parameters; validated in main on execute. */
+  args: Record<string, unknown>
+  status: ConductorActionStatus
+  /** Success detail or error message, set after the action runs. */
+  result?: string
+}
+
+/** One turn in the Conductor conversation (persisted to userData/conductor.json). */
+export interface ConductorMessage {
+  id: string
+  role: 'user' | 'assistant'
+  /** Markdown for assistant turns; plain text for user turns. */
+  text: string
+  at: number
+  /** Actions proposed by an assistant turn (absent/empty when none). */
+  actions?: ConductorAction[]
+  /** True while the assistant turn is still being generated. */
+  pending?: boolean
+  /** Turn-level failure (agent missing, timeout, or unparseable output). */
+  error?: string
+}
+
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
 export interface WorktreeInfo {
   /** Whether the folder is inside a git work tree. */

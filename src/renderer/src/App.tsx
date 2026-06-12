@@ -5,6 +5,7 @@ import { BackgroundDialog } from './components/BackgroundDialog'
 import { BroadcastDialog } from './components/BroadcastDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
+import { ConductorPane } from './components/ConductorPane'
 import { DiffViewer } from './components/DiffViewer'
 import { EnvVarsDialog } from './components/EnvVarsDialog'
 import { FeaturesDialog } from './components/FeaturesDialog'
@@ -47,6 +48,7 @@ export default function App(): JSX.Element {
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const broadcastOpen = useStore((s) => s.broadcastOpen)
+  const view = useStore((s) => s.view)
   const notice = useStore((s) => s.notice)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
@@ -66,6 +68,7 @@ export default function App(): JSX.Element {
       }),
       window.api.onSentinelRuns((id, runs) => useStore.getState().applySentinelRuns(id, runs)),
       window.api.onAutoExpandRuns((id, runs) => useStore.getState().applyAutoExpandRuns(id, runs)),
+      window.api.onConductorChanged((msgs) => useStore.getState().applyConductor(msgs)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)
@@ -145,9 +148,13 @@ export default function App(): JSX.Element {
         />
       )}
       <SessionSidebar />
-      {explorerVisible && active && <FileExplorer key={active.config.id} session={active} />}
+      {explorerVisible && active && view === 'session' && (
+        <FileExplorer key={active.config.id} session={active} />
+      )}
       <div className="main">
-        {sessions.length === 0 ? (
+        {view === 'conductor' ? (
+          <ConductorPane />
+        ) : sessions.length === 0 ? (
           <div className="welcome">
             <h1>Maestro</h1>
             <p>Run Claude Code on several repos at once — one window, zero lost context.</p>

@@ -23,6 +23,7 @@ import {
 } from './Attachments'
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
+import { ConductorService } from './ConductorService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
@@ -47,6 +48,7 @@ export function registerIpc(
   sentinels: SentinelService,
   features: FeatureService,
   autoExpand: AutoExpandService,
+  conductor: ConductorService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -172,6 +174,20 @@ export function registerIpc(
   // --- auto-expand (self-expanding features pipeline) ---
   ipcMain.handle('autoexpand:runs', (_e, sessionId: string) => autoExpand.listRuns(sessionId))
   ipcMain.handle('autoexpand:run', (_e, sessionId: string) => autoExpand.runNow(sessionId))
+
+  // --- conductor (app-level AI chat over all sessions) ---
+  ipcMain.handle('conductor:list', () => conductor.list())
+  ipcMain.handle('conductor:send', (_e, text: string) => conductor.send(text))
+  ipcMain.handle('conductor:approve', (_e, messageId: string, actionId: string) =>
+    conductor.approve(messageId, actionId)
+  )
+  ipcMain.handle('conductor:approveAll', (_e, messageId: string) =>
+    conductor.approveAll(messageId)
+  )
+  ipcMain.handle('conductor:reject', (_e, messageId: string, actionId: string) =>
+    conductor.reject(messageId, actionId)
+  )
+  ipcMain.handle('conductor:clear', () => conductor.clear())
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)
