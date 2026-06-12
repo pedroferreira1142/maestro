@@ -152,6 +152,7 @@ export function registerIpc(
 
   // --- features & specs ---
   ipcMain.handle('feature:list', (_e, sessionId: string) => features.list(sessionId))
+  ipcMain.handle('feature:forTask', (_e, sessionId: string) => features.forTask(sessionId))
   ipcMain.handle('feature:save', (_e, feature: Feature) => features.save(feature))
   ipcMain.handle('feature:delete', (_e, id: string) => features.delete(id))
   ipcMain.handle('feature:implement', (_e, id: string) => features.implement(id))

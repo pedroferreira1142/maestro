@@ -188,6 +188,8 @@ interface AppStore {
   featuresSessionId: string | null
   /** Features for the session whose dialog is open, oldest first. */
   features: Feature[]
+  /** The feature the *active* session was spun off to implement; null when none. */
+  linkedFeature: Feature | null
   /** The custom app background image as a data URL; null when none is set. */
   backgroundDataUrl: string | null
   /** Whether the background-image dialog is open. */
@@ -284,6 +286,8 @@ interface AppStore {
   deleteFeature(id: string): Promise<void>
   /** Spin off a worktree task to implement a feature; focuses the new session. */
   implementFeature(id: string): Promise<void>
+  /** Refresh `linkedFeature` for the active session (the feature it implements). */
+  refreshLinkedFeature(): Promise<void>
   closeSession(id: string): Promise<void>
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
@@ -360,6 +364,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   gitNonce: 0,
   featuresSessionId: null,
   features: [],
+  linkedFeature: null,
   backgroundDataUrl: null,
   backgroundDialogOpen: false,
   attentionQueue: [],
@@ -430,11 +435,15 @@ export const useStore = create<AppStore>()((set, get) => ({
         void get().refreshWorktreeState(s.config.id)
       }
     }
+    // The active session's feature link may have appeared/changed (e.g. a task
+    // was just spun off, or its status flipped to merged).
+    void get().refreshLinkedFeature()
   },
 
   setActive(id) {
     set({ activeId: id })
     void window.api.setActiveSession(id)
+    void get().refreshLinkedFeature()
   },
 
   async newSession() {
@@ -947,6 +956,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   async saveFeature(feature) {
     await window.api.saveFeature(feature)
     await get().loadFeatures(feature.sessionId)
+    // The edited feature may be the one the active session implements.
+    void get().refreshLinkedFeature()
   },
 
   async deleteFeature(id) {
@@ -966,6 +977,22 @@ export const useStore = create<AppStore>()((set, get) => ({
       const sessionId = get().featuresSessionId
       if (sessionId) await get().loadFeatures(sessionId)
     }
+  },
+
+  async refreshLinkedFeature() {
+    const id = get().activeId
+    if (!id) {
+      set({ linkedFeature: null })
+      return
+    }
+    let feature: Feature | null = null
+    try {
+      feature = await window.api.featureForTask(id)
+    } catch {
+      feature = null
+    }
+    // Ignore a late response if the active session changed meanwhile.
+    if (get().activeId === id) set({ linkedFeature: feature })
   },
 
   async closeSession(id) {

@@ -57,6 +57,15 @@ export class FeatureService {
       .sort((a, b) => a.createdAt - b.createdAt)
   }
 
+  /**
+   * The feature a worktree task session was spun off to implement, or null when
+   * the session isn't tied to one. Lets the UI surface a session's feature/specs
+   * from the task side (the feature itself belongs to the parent session).
+   */
+  forTask(taskSessionId: string): Feature | null {
+    return this.features.find((f) => f.taskSessionId === taskSessionId) ?? null
+  }
+
   /** Create or update one feature (upsert by id). */
   save(feature: Feature): void {
     const list = this.features

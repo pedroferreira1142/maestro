@@ -3017,3 +3017,141 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* ---------- feature rail (right-edge icon bar for feature-linked tasks) ---------- */
+
+.feature-rail {
+  flex: none;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+
+.feature-rail-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.feature-rail-btn:hover {
+  border-color: var(--dim);
+}
+
+.feature-rail-btn.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.feature-flyout-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  cursor: default;
+}
+
+.feature-flyout {
+  position: fixed;
+  width: 340px;
+  max-width: calc(100vw - 56px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--dim);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+}
+
+.feature-flyout.status-implementing {
+  border-left-color: var(--working);
+}
+
+.feature-flyout.status-merged {
+  border-left-color: var(--green);
+}
+
+.feature-flyout-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-flyout-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feature-flyout-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.feature-flyout .dim {
+  color: var(--dim);
+}
+
+.feature-flyout-specs-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+.feature-flyout-specs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.feature-flyout-spec {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.feature-flyout-check {
+  flex: none;
+  color: var(--dim);
+}
+
+.feature-flyout-spec.done .feature-flyout-check {
+  color: var(--green);
+}
+
+.feature-flyout-spec.done .feature-flyout-spec-text {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+.feature-flyout-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
