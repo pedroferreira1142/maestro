@@ -9,6 +9,14 @@ export type SessionStatus =
 export type StartMode = 'fresh' | 'continue'
 
 /**
+ * DataTransfer MIME type used when dragging a file row out of the explorer
+ * onto a terminal. Carries the file's session-relative path (forward-slash
+ * form), distinct from the OS file list so terminal drops can tell an
+ * explorer-path drag apart from an external image-file drop.
+ */
+export const MAESTRO_PATH_MIME = 'application/x-maestro-path'
+
+/**
  * The kind of program a terminal runs. `claude` is the default.
  * powershell/cmd are Windows-only; zsh is macOS/Linux-only (resolveKind
  * returns null for kinds unavailable on the current platform).
