@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DirEntry } from '../../../shared/types'
+import type { DirEntry, RepoCheckpoint } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { focusActiveTerminal } from '../termRegistry'
+import { promptAndCheckpoint } from './GitPanel'
 import { copyTranscript, exportTranscript, transcriptTarget } from '../transcript'
 import { STATUS_GLYPH } from './SessionSidebar'
 
@@ -81,8 +82,22 @@ export function CommandPalette(): JSX.Element {
   const [highlight, setHighlight] = useState(0)
   /** Files found by walking the session folder; null until the first walk ends. */
   const [walked, setWalked] = useState<string[] | null>(null)
+  /** Recent checkpoints of the active session's repo, for the Restore commands. */
+  const [checkpoints, setCheckpoints] = useState<RepoCheckpoint[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Load the active repo's checkpoints once on open, for the Restore commands.
+  useEffect(() => {
+    if (!activeId) return
+    let cancelled = false
+    void window.api.listCheckpoints(activeId).then((cps) => {
+      if (!cancelled) setCheckpoints(cps)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeId])
 
   // Focus the search input on open; hand focus back to the terminal on close.
   useEffect(() => {
@@ -133,22 +148,31 @@ export function CommandPalette(): JSX.Element {
     }
     if (sessionItems.length > 0) out.push({ title: 'Sessions', items: sessionItems })
 
+    const commandItems: PaletteItem[] = []
     const BROADCAST_LABEL = 'Broadcast prompt to sessions…'
     if (matches(BROADCAST_LABEL)) {
-      out.push({
-        title: 'Commands',
-        items: [
-          {
-            key: 'command:broadcast',
-            label: BROADCAST_LABEL,
-            run: () => {
-              st.closePalette()
-              st.openBroadcast()
-            }
-          }
-        ]
+      commandItems.push({
+        key: 'command:broadcast',
+        label: BROADCAST_LABEL,
+        run: () => {
+          st.closePalette()
+          st.openBroadcast()
+        }
       })
     }
+    const CHECKPOINT_LABEL = 'Checkpoint working tree…'
+    if (activeId && matches(CHECKPOINT_LABEL)) {
+      commandItems.push({
+        key: 'command:checkpoint',
+        label: CHECKPOINT_LABEL,
+        sub: 'snapshot for safe restore',
+        run: () => {
+          st.closePalette()
+          promptAndCheckpoint(activeId)
+        }
+      })
+    }
+    if (commandItems.length > 0) out.push({ title: 'Commands', items: commandItems })
 
     if (activeId) {
       const actionItems: PaletteItem[] = actions
@@ -192,6 +216,20 @@ export function CommandPalette(): JSX.Element {
         if (transcriptItems.length > 0) out.push({ title: 'Transcript', items: transcriptItems })
       }
 
+      // Restore the working tree to a recent checkpoint.
+      const checkpointItems: PaletteItem[] = checkpoints
+        .filter((c) => matches(`restore ${c.label}`))
+        .map((c) => ({
+          key: `checkpoint:${c.id}`,
+          label: `Restore: ${c.label}`,
+          sub: new Date(c.createdAt).toLocaleString(),
+          run: () => {
+            st.closePalette()
+            void st.restoreCheckpoint(activeId, c.id, c.label)
+          }
+        }))
+      if (checkpointItems.length > 0) out.push({ title: 'Checkpoints', items: checkpointItems })
+
       // Open tabs first, then recently changed files, then walk results —
       // deduplicated; the walk only contributes once the query has 2+ chars.
       const seen = new Set<string>()
@@ -218,7 +256,7 @@ export function CommandPalette(): JSX.Element {
       if (fileItems.length > 0) out.push({ title: 'Files', items: fileItems })
     }
     return out
-  }, [sessions, actions, viewers, recent, activeId, query, walked])
+  }, [sessions, actions, viewers, recent, activeId, query, walked, checkpoints])
 
   const flat = useMemo(() => sections.flatMap((s) => s.items), [sections])
   const sel = flat.length === 0 ? -1 : Math.min(highlight, flat.length - 1)

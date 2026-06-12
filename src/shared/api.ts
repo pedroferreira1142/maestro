@@ -11,6 +11,8 @@ import type {
   GitStatus,
   MergeResult,
   RepoCategory,
+  RepoCheckpoint,
+  RestoreCheckpointResult,
   ReusableAction,
   RunActionResult,
   SentinelRun,
@@ -81,6 +83,16 @@ export interface Api {
   gitChangedFiles(sessionId: string): Promise<GitFileChange[]>
   /** Unified diff of one file's working-tree state against HEAD (path is repo-root-relative). */
   gitFileDiff(sessionId: string, path: string): Promise<GitFileDiff>
+
+  // repo checkpoints (a working-tree safety net taken before a risky prompt)
+  /** Snapshot the working tree into a labeled checkpoint. Throws on git failure. */
+  createCheckpoint(sessionId: string, label: string): Promise<RepoCheckpoint>
+  /** Recent checkpoints for a session's repo, newest first. */
+  listCheckpoints(sessionId: string): Promise<RepoCheckpoint[]>
+  /** Restore the working tree back to a checkpoint (guarded; auto-saves current state first). */
+  restoreCheckpoint(sessionId: string, id: string): Promise<RestoreCheckpointResult>
+  /** Delete one checkpoint. */
+  deleteCheckpoint(sessionId: string, id: string): Promise<void>
 
   // terminals (within a session's folder)
   addTerminal(sessionId: string, kind: TerminalKind): Promise<TerminalInfo | null>
