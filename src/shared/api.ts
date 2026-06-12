@@ -1,6 +1,7 @@
 import type {
   AttachmentInfo,
   AutoExpandRun,
+  ConductorMessage,
   DirEntry,
   Feature,
   FileContent,
@@ -138,6 +139,22 @@ export interface Api {
   runAutoExpand(sessionId: string): Promise<void>
   /** Fired whenever a session's auto-expand run list changes (phase/status updates). */
   onAutoExpandRuns(cb: (sessionId: string, runs: AutoExpandRun[]) => void): Unsubscribe
+
+  // conductor (app-level AI chat over all sessions; propose→confirm)
+  /** The full Conductor conversation, oldest first. */
+  listConductor(): Promise<ConductorMessage[]>
+  /** Send a user message; the assistant turn is pushed via onConductorChanged. */
+  sendConductor(text: string): Promise<void>
+  /** Approve one proposed action on an assistant turn (runs it). */
+  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Approve every non-destructive proposed action on an assistant turn. */
+  approveAllConductorActions(messageId: string): Promise<void>
+  /** Reject one proposed action without running it. */
+  rejectConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Wipe the conversation. */
+  clearConductor(): Promise<void>
+  /** Fired whenever the conversation changes (new turn, action status). */
+  onConductorChanged(cb: (messages: ConductorMessage[]) => void): Unsubscribe
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

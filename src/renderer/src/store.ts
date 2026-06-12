@@ -3,6 +3,7 @@ import type {
   AttachmentInfo,
   AutoExpandConfig,
   AutoExpandRun,
+  ConductorMessage,
   Feature,
   FsEvent,
   RepoCategory,
@@ -197,6 +198,10 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
+  /** Which surface the main area shows: a session's terminals, or the Conductor chat. */
+  view: 'session' | 'conductor'
+  /** The Conductor conversation, oldest first (pushed from main). */
+  conductorMessages: ConductorMessage[]
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -311,6 +316,22 @@ interface AppStore {
   closeBroadcast(): void
   /** Queue one prompt onto several sessions at once (broadcast dialog). */
   broadcastPrompt(sessionIds: string[], text: string): Promise<void>
+  /** Switch the main area to the Conductor chat. */
+  openConductor(): void
+  /** Load the persisted Conductor conversation. */
+  loadConductor(): Promise<void>
+  /** Replace the conversation (pushed from main on every change). */
+  applyConductor(messages: ConductorMessage[]): void
+  /** Send a user message to the Conductor. */
+  sendConductor(text: string): Promise<void>
+  /** Approve (run) one proposed Conductor action. */
+  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Approve every non-destructive proposed action on a turn. */
+  approveAllConductorActions(messageId: string): Promise<void>
+  /** Reject one proposed Conductor action. */
+  rejectConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Wipe the Conductor conversation. */
+  clearConductor(): Promise<void>
   /** Show a brief confirmation message that dismisses itself. */
   showNotice(text: string): void
 }
@@ -355,6 +376,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   globalSearchOpen: false,
   paletteOpen: false,
   broadcastOpen: false,
+  view: 'session',
+  conductorMessages: [],
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -366,7 +389,11 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.api.getBackgroundImage()
     ])
     set({ settings, backgroundDataUrl })
-    await Promise.all([get().loadCategoriesAndSkills(), get().loadActions()])
+    await Promise.all([
+      get().loadCategoriesAndSkills(),
+      get().loadActions(),
+      get().loadConductor()
+    ])
     await get().refresh()
     const { sessions } = get()
     const active =
@@ -422,7 +449,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   setActive(id) {
-    set({ activeId: id })
+    // Selecting a session always leaves the Conductor view.
+    set({ activeId: id, view: 'session' })
     void window.api.setActiveSession(id)
   },
 
@@ -1087,6 +1115,42 @@ export const useStore = create<AppStore>()((set, get) => ({
     if (!trimmed || sessionIds.length === 0) return
     await Promise.all(sessionIds.map((id) => window.api.queueAdd(id, trimmed)))
     await get().refresh()
+  },
+
+  openConductor() {
+    set({ view: 'conductor' })
+  },
+
+  async loadConductor() {
+    set({ conductorMessages: await window.api.listConductor() })
+  },
+
+  applyConductor(messages) {
+    set({ conductorMessages: messages })
+    // An approved action may have created/changed sessions — keep the list fresh.
+    void get().refresh()
+  },
+
+  async sendConductor(text) {
+    if (!text.trim()) return
+    await window.api.sendConductor(text)
+  },
+
+  async approveConductorAction(messageId, actionId) {
+    await window.api.approveConductorAction(messageId, actionId)
+  },
+
+  async approveAllConductorActions(messageId) {
+    await window.api.approveAllConductorActions(messageId)
+  },
+
+  async rejectConductorAction(messageId, actionId) {
+    await window.api.rejectConductorAction(messageId, actionId)
+  },
+
+  async clearConductor() {
+    await window.api.clearConductor()
+    set({ conductorMessages: [] })
   },
 
   showNotice(text) {

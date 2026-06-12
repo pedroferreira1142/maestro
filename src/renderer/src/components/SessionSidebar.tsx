@@ -326,6 +326,31 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   )
 }
 
+/**
+ * The pinned, app-level "Maestro" row at the very top of the sidebar: selecting
+ * it shows the Conductor chat (an AI overview + orchestrator across every
+ * session/repo) in the main area instead of a session's terminals.
+ */
+function ConductorEntry(): JSX.Element {
+  const view = useStore((s) => s.view)
+  const openConductor = useStore((s) => s.openConductor)
+  const busy = useStore((s) => s.conductorMessages.some((m) => m.pending))
+  const active = view === 'conductor'
+  return (
+    <div
+      className={`session-entry conductor-entry${active ? ' active' : ''}`}
+      title="Maestro — AI overview & orchestrator across all your sessions"
+      onClick={openConductor}
+    >
+      <span className={`glyph${busy ? ' status-working' : ''}`}>{busy ? '⟳' : '✦'}</span>
+      <div className="session-meta">
+        <span className="session-name">Maestro</span>
+        <span className="session-folder">AI conductor · all sessions</span>
+      </div>
+    </div>
+  )
+}
+
 export function SessionSidebar(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
   const activeId = useStore((s) => s.activeId)
@@ -381,6 +406,7 @@ export function SessionSidebar(): JSX.Element {
         </span>
       </div>
       <div className="sidebar-list">
+        <ConductorEntry />
         {ordered.map((s, i) => (
           <SessionEntry key={s.config.id} session={s} index={i} />
         ))}

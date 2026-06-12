@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   AutoExpandRun,
+  ConductorMessage,
   Feature,
   FsEvent,
   RepoCategory,
@@ -75,6 +76,18 @@ const api: Api = {
   runSentinel: (sessionId, sentinelId) => ipcRenderer.invoke('sentinel:run', sessionId, sentinelId),
   onSentinelRuns: (cb) =>
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
+
+  listConductor: () => ipcRenderer.invoke('conductor:list'),
+  sendConductor: (text) => ipcRenderer.invoke('conductor:send', text),
+  approveConductorAction: (messageId, actionId) =>
+    ipcRenderer.invoke('conductor:approve', messageId, actionId),
+  approveAllConductorActions: (messageId) =>
+    ipcRenderer.invoke('conductor:approveAll', messageId),
+  rejectConductorAction: (messageId, actionId) =>
+    ipcRenderer.invoke('conductor:reject', messageId, actionId),
+  clearConductor: () => ipcRenderer.invoke('conductor:clear'),
+  onConductorChanged: (cb) =>
+    subscribe('conductor:changed', (msgs) => cb(msgs as ConductorMessage[])),
 
   listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
   saveFeature: (feature: Feature) => ipcRenderer.invoke('feature:save', feature),
