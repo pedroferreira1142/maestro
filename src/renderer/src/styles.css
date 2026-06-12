@@ -4364,3 +4364,151 @@ body {
   padding: 40px;
   text-align: center;
 }
+
+/* ---------- token efficiency (settings tab + status bar) ---------- */
+
+.te-layout {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.te-global {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.te-session {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+}
+
+.te-master .skill-name {
+  font-weight: 600;
+}
+
+.te-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 14px;
+}
+
+.te-tools.te-disabled {
+  opacity: 0.5;
+}
+
+.te-limits {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.te-detect {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.te-warn {
+  color: var(--attention);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.te-mini {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.te-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.te-chip {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--dim);
+  border: 1px solid var(--border);
+}
+
+.te-chip.on {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.te-overrides {
+  display: flex;
+  gap: 14px;
+}
+
+.te-override {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.te-override-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.te-override-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.te-override-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.te-override-row select {
+  width: 84px;
+}
+
+/* status bar token counters / savings chip */
+.statusbar-tokens {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.statusbar-te {
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--green);
+  cursor: pointer;
+  padding: 0;
+}
+
+.statusbar-te.pending {
+  color: var(--attention);
+}

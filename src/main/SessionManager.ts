@@ -36,6 +36,7 @@ import * as Git from './GitService'
 import { Persistence } from './Persistence'
 import { PtySession } from './PtySession'
 import { ScrollbackStore, SCROLLBACK_MAX_BYTES } from './ScrollbackStore'
+import { TokenEfficiencyService } from './TokenEfficiency'
 
 /** How long to wait before typing a worktree task's initial prompt into claude. */
 const INITIAL_PROMPT_DELAY_MS = 3500
@@ -162,6 +163,7 @@ export class SessionManager {
   constructor(
     private persistence: Persistence,
     private fs: FsService,
+    private tokenEff: TokenEfficiencyService,
     private getWin: () => BrowserWindow | null
   ) {}
 
@@ -203,6 +205,9 @@ export class SessionManager {
       skillNames,
       this.managedServerNames()
     )
+    // Token-efficiency hooks/repo map ride the same pre-spawn materialization
+    // (claude reads hooks + env only at startup).
+    this.tokenEff.apply(config)
   }
 
   private sessionOfTerminal(terminalId: string): SessionConfig | undefined {
@@ -255,6 +260,7 @@ export class SessionManager {
     }
     this.fs.stop(id)
     this.clearQueueTimer(id)
+    this.tokenEff.clearApplied(id)
     void deleteAllAttachments(id).catch(() => {})
     this.state.sessions = this.state.sessions.filter((s) => s.id !== id)
     if (this.state.activeSessionId === id) this.state.activeSessionId = null
@@ -853,6 +859,7 @@ export class SessionManager {
 
     this.clearQueueTimer(sessionId)
     this.clearAutoCompleteTimer(sessionId)
+    this.tokenEff.clearApplied(sessionId)
     this.worktreeWorked.delete(sessionId)
     this.autoCompleteInFlight.delete(sessionId)
     this.state.sessions = this.state.sessions.filter((s) => s.id !== sessionId)
@@ -1242,6 +1249,12 @@ export class SessionManager {
     mode: StartMode,
     history?: string
   ): void {
+    // Token-efficiency env caps apply to claude only; the user's per-session
+    // env overlays them, so an explicit session entry always wins.
+    const te =
+      terminal.kind === 'claude'
+        ? this.tokenEff.envFor(config)
+        : { set: {} as Record<string, string>, drop: [] as string[] }
     const session = new PtySession(
       terminal,
       config.folder,
@@ -1256,11 +1269,13 @@ export class SessionManager {
         // Snapshot lazily at write time — the store throttles to ~1 write/s.
         onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
       },
-      config.env ?? {}
+      { ...te.set, ...(config.env ?? {}) },
+      te.drop
     )
     if (history) session.seedHistory(history + SCROLLBACK_DIVIDER)
     this.ptys.set(terminal.id, session)
     session.spawn(mode)
+    if (terminal.kind === 'claude') this.tokenEff.markApplied(config)
   }
 
   private handleStatus(terminalId: string, status: SessionStatus): void {
@@ -1390,7 +1405,8 @@ export class SessionManager {
       lastOutputAt: pty?.detector.lastOutput ?? 0,
       exitCode: pty?.exitCode ?? null,
       statusSince,
-      watchdog: pty?.alive ? this.watchdogAlert(terminal, status, statusSince) : null
+      watchdog: pty?.alive ? this.watchdogAlert(terminal, status, statusSince) : null,
+      outputChars: pty?.outputChars ?? 0
     }
   }
 

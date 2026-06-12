@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { McpServerDef, RepoCategory } from '../../../shared/types'
 import { useStore } from '../store'
+import { TokenEfficiencyTab } from './TokenEfficiencyTab'
 
 const COLORS = ['#3b82f6', '#a855f7', '#22c55e', '#f59e0b', '#d97757', '#e5484d']
 
@@ -323,27 +324,38 @@ function CategoriesTab(): JSX.Element {
   )
 }
 
-type SettingsTab = 'categories'
+type SettingsTab = 'categories' | 'token-efficiency'
 
 /**
- * The app Settings dialog. Currently hosts the "Repo categories" tab (context
- * profiles) behind a tab strip, leaving room for future settings sections. The
- * Agent & Skill Factory lives in its own full pane, not here.
+ * The app Settings dialog: "Repo categories" (context profiles) and "Token
+ * Efficiency" (the token-saving toolkit) behind a tab strip. The Agent & Skill
+ * Factory lives in its own full pane, not here.
  */
 export function SettingsDialog(): JSX.Element {
   const close = useStore((s) => s.closeSettings)
-  const [tab] = useState<SettingsTab>('categories')
+  const initialTab = useStore((s) => s.settingsTab)
+  const [tab, setTab] = useState<SettingsTab>(initialTab)
 
   return (
     <div className="modal-overlay" onClick={close}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
         <div className="settings-tabs">
-          <button className={`settings-tab${tab === 'categories' ? ' active' : ''}`}>
+          <button
+            className={`settings-tab${tab === 'categories' ? ' active' : ''}`}
+            onClick={() => setTab('categories')}
+          >
             Repo categories
+          </button>
+          <button
+            className={`settings-tab${tab === 'token-efficiency' ? ' active' : ''}`}
+            onClick={() => setTab('token-efficiency')}
+          >
+            Token Efficiency
           </button>
         </div>
         {tab === 'categories' && <CategoriesTab />}
+        {tab === 'token-efficiency' && <TokenEfficiencyTab />}
       </div>
     </div>
   )

@@ -2,7 +2,13 @@ import { app } from 'electron'
 import { randomUUID } from 'crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
-import { AppStateFile, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, SessionConfig } from '../shared/types'
+import {
+  AppStateFile,
+  DEFAULT_CATEGORIES,
+  DEFAULT_SETTINGS,
+  DEFAULT_TOKEN_EFFICIENCY,
+  SessionConfig
+} from '../shared/types'
 
 const DEFAULT_STATE: AppStateFile = {
   schemaVersion: 1,
@@ -73,7 +79,16 @@ export class Persistence {
         ...DEFAULT_STATE,
         ...raw,
         window: { ...DEFAULT_STATE.window, ...(raw.window ?? {}) },
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
+        settings: {
+          ...DEFAULT_SETTINGS,
+          ...(raw.settings ?? {}),
+          // Nested object — merge so new fields gain their defaults on upgrade.
+          tokenEfficiency: {
+            ...DEFAULT_TOKEN_EFFICIENCY,
+            ...(raw.settings?.tokenEfficiency ?? {})
+          },
+          tokenEfficiencyRepoOverrides: raw.settings?.tokenEfficiencyRepoOverrides ?? {}
+        },
         categories: Array.isArray(raw.categories) ? raw.categories : DEFAULT_CATEGORIES,
         actions: Array.isArray(raw.actions) ? raw.actions : [],
         features: Array.isArray(raw.features) ? raw.features : [],

@@ -203,6 +203,8 @@ export interface SessionConfig {
   autoExpand?: AutoExpandConfig | null
   /** Follow-up prompts dispatched to claude, oldest first, when it next sits idle. */
   promptQueue?: QueuedPrompt[]
+  /** Per-session Token Efficiency override; null/absent = inherit repo/global. */
+  tokenEfficiency?: TokenEfficiencyOverride | null
 }
 
 // ---------- sentinels (background watcher agents) ----------
@@ -741,6 +743,8 @@ export interface TerminalInfo {
   statusSince: number
   /** Active stall/unanswered watchdog alert, or null. Only ever set for claude terminals. */
   watchdog: WatchdogAlert | null
+  /** Chars of process output this run — the UI's rough token estimate (~4 chars/token). */
+  outputChars: number
 }
 
 export interface SessionInfo {
@@ -880,6 +884,111 @@ export interface UsageSnapshot {
   updatedAt: number
 }
 
+// ---------- token efficiency (token-saving toolkit) ----------
+
+/**
+ * The individual token-saving tools the Token Efficiency toolkit can apply to
+ * a claude terminal. Each maps to a concrete mechanism materialized before
+ * claude spawns (hooks in .claude/settings.local.json, env vars, context):
+ *  outputCompression — PreToolUse(Bash) hook rewriting noisy commands to run
+ *    through rtk (when installed) or Maestro's built-in output filter.
+ *  codeGraph         — compact repo symbol map injected via a SessionStart
+ *    hook, so claude navigates by symbols instead of full-file reads.
+ *  truncationHooks   — output-size limits: BASH_MAX_OUTPUT_LENGTH /
+ *    MAX_MCP_OUTPUT_TOKENS env caps plus a PreToolUse(Read) guard that blocks
+ *    whole-file reads of giant token sinks (lockfiles, logs, node_modules).
+ *  promptCachingHints — strips DISABLE_PROMPT_CACHING from the spawn env so
+ *    an inherited shell setting can't silently disable prompt caching.
+ */
+export interface TokenEfficiencyToggles {
+  outputCompression: boolean
+  codeGraph: boolean
+  truncationHooks: boolean
+  promptCachingHints: boolean
+}
+
+/** Global Token Efficiency configuration (Settings → Token Efficiency). */
+export interface TokenEfficiencyConfig extends TokenEfficiencyToggles {
+  /** Master switch — off means nothing is applied anywhere. */
+  enabled: boolean
+  /** Max characters of Bash tool output forwarded to the model. */
+  bashMaxOutputChars: number
+  /** Max tokens of an MCP tool result forwarded to the model. */
+  mcpMaxOutputTokens: number
+  /** File size (KB) above which Reads of known token sinks are blocked. */
+  largeReadMaxKB: number
+  /** Max files included in the generated repo map. */
+  repoMapMaxFiles: number
+}
+
+/**
+ * A per-repo or per-session override: every field left undefined inherits
+ * from the next scope up (session → repo → global).
+ */
+export interface TokenEfficiencyOverride extends Partial<TokenEfficiencyToggles> {
+  enabled?: boolean
+}
+
+export const DEFAULT_TOKEN_EFFICIENCY: TokenEfficiencyConfig = {
+  enabled: false,
+  outputCompression: true,
+  codeGraph: true,
+  truncationHooks: true,
+  promptCachingHints: true,
+  bashMaxOutputChars: 30000,
+  mcpMaxOutputTokens: 25000,
+  largeReadMaxKB: 256,
+  repoMapMaxFiles: 400
+}
+
+/** Facts about the generated repo map for one session's repo. */
+export interface RepoMapInfo {
+  generatedAt: number
+  files: number
+  symbols: number
+  bytes: number
+}
+
+/** Estimated savings achieved by the efficiency tools (from hook stats). */
+export interface TokenEfficiencySavings {
+  /** Rough tokens saved (compressed output + blocked giant reads, chars/4). */
+  savedTokens: number
+  /** Commands rewritten to rtk (savings not measurable, counted only). */
+  rtkRewrites: number
+  /** Commands piped through the built-in output filter. */
+  filteredCommands: number
+  /** Whole-file reads of token sinks that were blocked. */
+  blockedReads: number
+}
+
+/**
+ * Live Token Efficiency state of one session, for the settings page's status
+ * indicator and the status bar: the resolved effective config, the overrides
+ * feeding it, external tool detection, what the running claude was actually
+ * spawned with (hooks/env are read at startup, so changes apply on restart),
+ * repo-map facts and accumulated savings.
+ */
+export interface TokenEfficiencyStatus {
+  /** Resolved config for this session (global ⊕ repo override ⊕ session override). */
+  effective: TokenEfficiencyConfig
+  /** The repo-scope override (keyed by the repo root), or null when none. */
+  repoOverride: TokenEfficiencyOverride | null
+  /** This session's own override, or null when none. */
+  sessionOverride: TokenEfficiencyOverride | null
+  /** rtk CLI detection ('Output compression' upgrades git commands when found). */
+  rtk: { found: boolean; path: string | null }
+  /** node on PATH — hook scripts run via node; without it only env caps apply. */
+  nodeFound: boolean
+  /** Effective config the session's claude was last spawned with; null = not running. */
+  applied: TokenEfficiencyConfig | null
+  /** True when `effective` differs from `applied` — restart claude to pick it up. */
+  pendingRestart: boolean
+  /** Repo map facts; null when no map has been generated (or codeGraph is off). */
+  repoMap: RepoMapInfo | null
+  /** Savings attributed to this session's folder. */
+  savings: TokenEfficiencySavings
+}
+
 export interface Settings {
   /** Command template for "open in editor". ${path}, ${dir} are substituted. */
   editorCommand: string
@@ -908,6 +1017,14 @@ export interface Settings {
    * alert fires. 0 disables the unanswered alert.
    */
   watchdogUnansweredMinutes: number
+  /** Token Efficiency toolkit — global defaults (Settings → Token Efficiency). */
+  tokenEfficiency: TokenEfficiencyConfig
+  /**
+   * Per-repo Token Efficiency overrides, keyed by the repo's root folder (a
+   * worktree task session resolves to its base repo's root, so a repo and its
+   * parallel tasks share one override).
+   */
+  tokenEfficiencyRepoOverrides: Record<string, TokenEfficiencyOverride>
 }
 
 export interface WindowBounds {
@@ -948,7 +1065,9 @@ export const DEFAULT_SETTINGS: Settings = {
   backgroundOpacity: 0.3,
   watchdogEnabled: true,
   watchdogStallMinutes: 10,
-  watchdogUnansweredMinutes: 5
+  watchdogUnansweredMinutes: 5,
+  tokenEfficiency: DEFAULT_TOKEN_EFFICIENCY,
+  tokenEfficiencyRepoOverrides: {}
 }
 
 /**

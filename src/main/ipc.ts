@@ -14,6 +14,8 @@ import {
   Settings,
   TerminalConfig,
   TerminalKind,
+  TokenEfficiencyConfig,
+  TokenEfficiencyOverride,
   TranscriptExportResult
 } from '../shared/types'
 import {
@@ -34,6 +36,7 @@ import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
+import { TokenEfficiencyService } from './TokenEfficiency'
 import { UsageLimitsService } from './UsageLimits'
 import { UsageService } from './UsageService'
 
@@ -58,6 +61,7 @@ export function registerIpc(
   autoExpand: AutoExpandService,
   conductor: ConductorService,
   factory: FactoryService,
+  tokenEff: TokenEfficiencyService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -353,6 +357,33 @@ export function registerIpc(
   ipcMain.handle('attachments:delete', (_e, id: string, fileName: string) =>
     deleteAttachment(id, fileName)
   )
+  // --- token efficiency (token-saving toolkit + settings page) ---
+  ipcMain.handle('tokenEff:status', (_e, sessionId: string) => tokenEff.status(sessionId))
+  ipcMain.handle('tokenEff:saveGlobal', (_e, config: TokenEfficiencyConfig) => {
+    tokenEff.saveGlobal(config)
+    getWin()?.webContents.send('session:changed')
+  })
+  ipcMain.handle(
+    'tokenEff:setRepoOverride',
+    (_e, sessionId: string, override: TokenEfficiencyOverride | null) => {
+      tokenEff.setRepoOverride(sessionId, override)
+      getWin()?.webContents.send('session:changed')
+    }
+  )
+  ipcMain.handle(
+    'tokenEff:setSessionOverride',
+    (_e, sessionId: string, override: TokenEfficiencyOverride | null) => {
+      tokenEff.setSessionOverride(sessionId, override)
+      getWin()?.webContents.send('session:changed')
+    }
+  )
+  ipcMain.handle('tokenEff:refreshRepoMap', (_e, sessionId: string) =>
+    tokenEff.refreshRepoMap(sessionId)
+  )
+  ipcMain.handle('tokenEff:detectTools', (_e, refresh?: boolean) =>
+    tokenEff.detectTools(refresh ?? false)
+  )
+
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
   const usage = new UsageService()
   ipcMain.handle('usage:get', () => usage.snapshot())

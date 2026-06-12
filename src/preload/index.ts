@@ -16,6 +16,8 @@ import type {
   SessionStatus,
   Settings,
   TerminalConfig,
+  TokenEfficiencyConfig,
+  TokenEfficiencyOverride,
   WorktreeAutoCompleteEvent
 } from '../shared/types'
 
@@ -202,6 +204,16 @@ const api: Api = {
       return ''
     }
   },
+  getTokenEfficiencyStatus: (sessionId) => ipcRenderer.invoke('tokenEff:status', sessionId),
+  saveTokenEfficiency: (config: TokenEfficiencyConfig) =>
+    ipcRenderer.invoke('tokenEff:saveGlobal', config),
+  setTokenEfficiencyRepoOverride: (sessionId, override: TokenEfficiencyOverride | null) =>
+    ipcRenderer.invoke('tokenEff:setRepoOverride', sessionId, override),
+  setTokenEfficiencySessionOverride: (sessionId, override: TokenEfficiencyOverride | null) =>
+    ipcRenderer.invoke('tokenEff:setSessionOverride', sessionId, override),
+  refreshRepoMap: (sessionId) => ipcRenderer.invoke('tokenEff:refreshRepoMap', sessionId),
+  detectEfficiencyTools: (refresh) => ipcRenderer.invoke('tokenEff:detectTools', refresh),
+
   getUsage: () => ipcRenderer.invoke('usage:get'),
   getUsageLimits: () => ipcRenderer.invoke('usage:limits'),
 
