@@ -637,7 +637,15 @@ export class SessionManager {
     if (!terminal) return
     this.ptys.get(terminalId)?.kill()
     if (terminal.kind === 'claude') this.applyProfile(config)
-    this.spawnTerminal(config, terminal, mode === 'resume' ? 'continue' : 'fresh')
+    // On resume, replay the persisted scrollback above the divider so visible
+    // history survives the respawn (same seeding restoreAll does on launch).
+    const history = mode === 'resume' ? this.scrollback.load(terminalId) : ''
+    this.spawnTerminal(
+      config,
+      terminal,
+      mode === 'resume' ? 'continue' : 'fresh',
+      history || undefined
+    )
     this.notifyChanged()
   }
 

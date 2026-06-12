@@ -1097,6 +1097,23 @@ body {
   width: 90px;
 }
 
+/* Per-claude-tab model switcher */
+.tab-model {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--dim);
+  font-size: 10px;
+  padding: 0 2px;
+  max-width: 74px;
+  cursor: pointer;
+}
+
+.tab-model:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 /* Add-terminal dropdown */
 .tab-add {
   position: relative;
