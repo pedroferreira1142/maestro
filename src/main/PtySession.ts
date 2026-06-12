@@ -139,13 +139,17 @@ export class PtySession {
   private attached = false
   readonly detector: StatusDetector
   exitCode: number | null = null
+  /** Total chars of live process output this run (token-estimate feed). */
+  outputChars = 0
 
   constructor(
     readonly config: TerminalConfig,
     private folder: string,
     private cb: PtyCallbacks,
     /** Per-session env overrides, overlaid on process.env at spawn time. */
-    private sessionEnv: Record<string, string> = {}
+    private sessionEnv: Record<string, string> = {},
+    /** Inherited variables removed from the spawn env (after overlays). */
+    private dropEnv: string[] = []
   ) {
     this.detector = new StatusDetector(
       (s) => cb.onStatus(config.id, s),
@@ -190,6 +194,11 @@ export class PtySession {
     // whitespace-only keys are ignored so they never reach the spawned process.
     for (const [k, v] of Object.entries(this.sessionEnv)) {
       if (k.trim()) env[k] = v
+    }
+    // Variables explicitly dropped (e.g. an inherited DISABLE_PROMPT_CACHING
+    // the token-efficiency toolkit strips) — unless the session set them itself.
+    for (const k of this.dropEnv) {
+      if (!(k in this.sessionEnv)) delete env[k]
     }
 
     try {
@@ -281,6 +290,7 @@ export class PtySession {
   private handleData(data: string): void {
     this.chunks.push(data)
     this.bufferedBytes += data.length
+    this.outputChars += data.length
     while (this.bufferedBytes > RING_BUFFER_BYTES && this.chunks.length > 1) {
       this.bufferedBytes -= this.chunks[0].length
       this.chunks.shift()

@@ -9,6 +9,7 @@ import { registerIpc } from './ipc'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
+import { TokenEfficiencyService } from './TokenEfficiency'
 
 let win: BrowserWindow | null = null
 const getWin = (): BrowserWindow | null => win
@@ -85,7 +86,8 @@ if (!gotLock) {
       (sessionId, events) => getWin()?.webContents.send('fs:events', sessionId, events),
       () => persistence.state.settings.ignoreNames
     )
-    const sessions = new SessionManager(persistence, fsService, getWin)
+    const tokenEff = new TokenEfficiencyService(persistence)
+    const sessions = new SessionManager(persistence, fsService, tokenEff, getWin)
     const sentinels = new SentinelService(persistence, getWin)
     const features = new FeatureService(persistence, sessions)
     const autoExpand = new AutoExpandService(persistence, features, getWin)
@@ -100,6 +102,7 @@ if (!gotLock) {
       autoExpand,
       conductor,
       factory,
+      tokenEff,
       getWin
     )
 
@@ -108,6 +111,7 @@ if (!gotLock) {
     sessions.startWatchdog()
     sentinels.start()
     autoExpand.start()
+    tokenEff.start()
 
     // macOS convention: closing the window keeps the app (and its PTYs)
     // running; clicking the dock icon brings the window back.
@@ -116,6 +120,7 @@ if (!gotLock) {
     })
 
     app.on('before-quit', () => {
+      tokenEff.dispose()
       factory.dispose()
       conductor.dispose()
       autoExpand.dispose()

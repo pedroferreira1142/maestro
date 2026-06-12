@@ -17,6 +17,7 @@ import type {
   PullRequestResult,
   RepoCategory,
   RepoCheckpoint,
+  RepoMapInfo,
   RestoreCheckpointResult,
   ReusableAction,
   RunActionResult,
@@ -29,6 +30,9 @@ import type {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  TokenEfficiencyConfig,
+  TokenEfficiencyOverride,
+  TokenEfficiencyStatus,
   TranscriptExportResult,
   UsageLimits,
   UsageSnapshot,
@@ -268,6 +272,28 @@ export interface Api {
   deleteAttachment(sessionId: string, fileName: string): Promise<void>
   /** Absolute path of a dragged-in File (Electron webUtils); '' when it has none. */
   pathForFile(file: File): string
+  // token efficiency (token-saving toolkit; global config lives in Settings)
+  /** Live toolkit status for one session: effective config, overrides, drift, savings. */
+  getTokenEfficiencyStatus(sessionId: string): Promise<TokenEfficiencyStatus | null>
+  /** Persist the global config and re-materialize every session's repo. */
+  saveTokenEfficiency(config: TokenEfficiencyConfig): Promise<void>
+  /** Set/clear the override of the session's repo (shared with its worktree tasks). */
+  setTokenEfficiencyRepoOverride(
+    sessionId: string,
+    override: TokenEfficiencyOverride | null
+  ): Promise<void>
+  /** Set/clear one session's own override. */
+  setTokenEfficiencySessionOverride(
+    sessionId: string,
+    override: TokenEfficiencyOverride | null
+  ): Promise<void>
+  /** Regenerate the session's repo symbol map right now. */
+  refreshRepoMap(sessionId: string): Promise<RepoMapInfo | null>
+  /** Probe for external tools (rtk, node); refresh re-probes PATH. */
+  detectEfficiencyTools(
+    refresh?: boolean
+  ): Promise<{ rtk: { found: boolean; path: string | null }; nodeFound: boolean }>
+
   // usage (token cost aggregated from Claude Code transcripts)
   getUsage(): Promise<UsageSnapshot>
   /**
