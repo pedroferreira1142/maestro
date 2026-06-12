@@ -37,6 +37,10 @@ export function WorktreeTaskDialog(): JSX.Element {
   const [branchEdited, setBranchEdited] = useState(false)
   const [baseBranch, setBaseBranch] = useState(pending.baseBranch)
   const [initialPrompt, setInitialPrompt] = useState('')
+  // PR management: by default a task merges straight into its base branch.
+  // Opt into a PR for review, and/or into doing it automatically when claude finishes.
+  const [createPr, setCreatePr] = useState(false)
+  const [autoComplete, setAutoComplete] = useState(false)
 
   // Auto-derive the branch from the type + task name until the user edits it directly.
   const onName = (v: string): void => {
@@ -57,7 +61,9 @@ export function WorktreeTaskDialog(): JSX.Element {
       name: name.trim() || effectiveBranch,
       branch: effectiveBranch,
       baseBranch: baseBranch.trim() || pending.baseBranch,
-      initialPrompt
+      initialPrompt,
+      completion: createPr ? 'pr' : 'merge',
+      autoComplete
     })
   }
 
@@ -123,6 +129,39 @@ export function WorktreeTaskDialog(): JSX.Element {
             onChange={(e) => setInitialPrompt(e.target.value)}
           />
         </label>
+
+        <div className="field">
+          <span>When the task is done</span>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={createPr}
+              onChange={(e) => setCreatePr(e.target.checked)}
+            />
+            <span>
+              Open a pull request for review
+              <small className="check-hint">
+                {createPr
+                  ? `Push ${effectiveBranch || 'the branch'} and open a PR into ${baseBranch.trim() || pending.baseBranch} (needs the gh CLI). Otherwise it merges straight into the base branch.`
+                  : `Otherwise it merges straight into ${baseBranch.trim() || pending.baseBranch}.`}
+              </small>
+            </span>
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={autoComplete}
+              onChange={(e) => setAutoComplete(e.target.checked)}
+            />
+            <span>
+              Do it automatically when claude finishes
+              <small className="check-hint">
+                Maestro commits pending work and {createPr ? 'opens the PR' : 'merges'} once the task
+                sits idle. Auto-merge skips conflicting merges and leaves them for you.
+              </small>
+            </span>
+          </label>
+        </div>
 
         <div className="modal-actions">
           <button className="btn" onClick={cancel}>

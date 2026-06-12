@@ -10,6 +10,7 @@ import type {
   GitFileDiff,
   GitStatus,
   MergeResult,
+  PullRequestResult,
   RepoCategory,
   ReusableAction,
   RunActionResult,
@@ -24,6 +25,8 @@ import type {
   TerminalKind,
   TranscriptExportResult,
   UsageSnapshot,
+  WorktreeAutoCompleteEvent,
+  WorktreeCompletion,
   WorktreeInfo,
   WorktreeTaskState
 } from './types'
@@ -38,6 +41,10 @@ export interface CreateWorktreeOpts {
   baseBranch: string
   /** Optional first prompt typed into the task's claude terminal (not auto-submitted). */
   initialPrompt?: string
+  /** How the task lands its work: direct merge (default) or a PR for review. */
+  completion?: WorktreeCompletion
+  /** When true, Maestro auto-runs `completion` once claude finishes the task. */
+  autoComplete?: boolean
 }
 
 export type Unsubscribe = () => void
@@ -67,8 +74,17 @@ export interface Api {
   mergeWorktree(sessionId: string, commitFirst: boolean): Promise<MergeResult>
   /** Start the merge for real, LEAVING conflict markers in the base repo for assisted resolution. */
   startConflictedMerge(sessionId: string): Promise<MergeResult>
+  /** Open a PR for a task branch against its base (commitFirst commits pending work first). */
+  createWorktreePr(sessionId: string, commitFirst: boolean): Promise<PullRequestResult>
   /** Close a worktree task, remove its worktree, and optionally delete its branch. */
   removeWorktree(sessionId: string, deleteBranch: boolean): Promise<void>
+  /**
+   * Fired when Maestro auto-completes a worktree task (merge or PR) after claude
+   * finished, so the renderer can surface the outcome without a click.
+   */
+  onWorktreeAutoCompleted(
+    cb: (sessionId: string, result: WorktreeAutoCompleteEvent) => void
+  ): Unsubscribe
 
   // git (status + history for a session's repo)
   /** Working-tree + branch state of a session's repo; isRepo:false off-repo. */

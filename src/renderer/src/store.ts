@@ -14,6 +14,8 @@ import type {
   Settings,
   SkillInfo,
   TerminalKind,
+  WorktreeAutoCompleteEvent,
+  WorktreeCompletion,
   WorktreeTaskState
 } from '../../shared/types'
 
@@ -220,9 +222,17 @@ interface AppStore {
     branch: string
     baseBranch: string
     initialPrompt: string
+    completion: WorktreeCompletion
+    autoComplete: boolean
   }): Promise<void>
   cancelWorktreeTask(): void
+  /** Complete a task per its configured mode: direct merge, or open a PR. */
+  completeWorktree(sessionId: string): Promise<void>
   mergeWorktree(sessionId: string): Promise<void>
+  /** Push the task branch and open a PR against its base (the PR completion path). */
+  createWorktreePr(sessionId: string): Promise<void>
+  /** Surface the outcome of an automatic (auto-merge / auto-PR) completion. */
+  applyWorktreeAutoCompleted(sessionId: string, result: WorktreeAutoCompleteEvent): void
   removeWorktreeTask(sessionId: string): Promise<void>
   /** Re-check one worktree task's merge readiness and cache it for the badge. */
   refreshWorktreeState(sessionId: string): Promise<void>
@@ -500,7 +510,9 @@ export const useStore = create<AppStore>()((set, get) => ({
         name: opts.name,
         branch: opts.branch,
         baseBranch: opts.baseBranch,
-        initialPrompt: opts.initialPrompt || undefined
+        initialPrompt: opts.initialPrompt || undefined,
+        completion: opts.completion,
+        autoComplete: opts.autoComplete
       })
       await get().refresh()
       get().setActive(info.config.id)
@@ -512,6 +524,91 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   cancelWorktreeTask() {
     set({ pendingWorktree: null })
+  },
+
+  async completeWorktree(sessionId) {
+    const wt = get().sessions.find((s) => s.config.id === sessionId)?.config.worktree
+    if (!wt) return
+    if (wt.completion === 'pr') await get().createWorktreePr(sessionId)
+    else await get().mergeWorktree(sessionId)
+  },
+
+  async createWorktreePr(sessionId) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    const wt = session?.config.worktree
+    if (!session || !wt) return
+
+    const state = await window.api.worktreeState(sessionId)
+    if (!state.folderExists) {
+      window.alert(
+        `The worktree folder for "${session.config.name}" no longer exists.\n\n` +
+          `Use ✕ on the task to clean it up.`
+      )
+      return
+    }
+
+    // Claude edits but doesn't commit — pending work must be committed to the
+    // branch or the PR would be missing it.
+    let commitFirst = false
+    if (state.dirty > 0) {
+      commitFirst = window.confirm(
+        `"${session.config.name}" has ${state.dirty} uncommitted file(s).\n\n` +
+          `Commit them to "${wt.branch}", push, and open a PR into "${wt.baseBranch}"?`
+      )
+      if (!commitFirst) return
+    } else if (state.ahead === 0) {
+      window.alert(
+        `Nothing to open a PR for: "${wt.branch}" has no uncommitted changes and no commits ` +
+          `beyond "${wt.baseBranch}".\n\nAsk claude to make (or commit) changes first.`
+      )
+      return
+    }
+
+    const result = await window.api.createWorktreePr(sessionId, commitFirst)
+    get().refreshGit() // a commit may have happened
+    if (result.ok) {
+      const existed = result.alreadyExists ? 'A pull request already exists' : 'Opened a pull request'
+      get().showNotice(`${existed} for "${wt.branch}".`)
+      if (result.url && window.confirm(`${existed} for "${wt.branch}":\n\n${result.url}\n\nOpen it in your browser?`)) {
+        window.api.openExternal(result.url)
+      }
+      return
+    }
+    if (result.nothingToMerge) {
+      window.alert(result.output)
+      return
+    }
+    window.alert(`Couldn't open the pull request:\n\n${result.output}`)
+  },
+
+  applyWorktreeAutoCompleted(sessionId, result) {
+    void sessionId
+    if (result.kind === 'pr') {
+      if (result.ok) {
+        get().showNotice(`Auto-opened a PR for "${result.branch}".`)
+        if (result.url) {
+          window.alert(
+            `Maestro automatically opened a pull request for "${result.name}":\n\n${result.url}`
+          )
+        }
+      } else {
+        window.alert(
+          `Maestro tried to auto-open a PR for "${result.name}" but it failed:\n\n${result.output}`
+        )
+      }
+      return
+    }
+    // merge
+    if (result.ok) {
+      get().showNotice(`Auto-merged "${result.branch}" into "${result.baseBranch}".`)
+    } else if (result.conflict) {
+      window.alert(
+        `Maestro couldn't auto-merge "${result.name}" into "${result.baseBranch}" — it would ` +
+          `conflict. The base repo was left untouched; merge it from the sidebar to resolve.\n\n${result.output}`
+      )
+    } else {
+      window.alert(`Maestro's auto-merge of "${result.name}" failed:\n\n${result.output}`)
+    }
   },
 
   async mergeWorktree(sessionId) {

@@ -28,18 +28,24 @@ function FeatureCard({ feature }: { feature: Feature }): JSX.Element {
   const [title, setTitle] = useState(feature.title)
   const [description, setDescription] = useState(feature.description)
   const [specs, setSpecs] = useState<Spec[]>(feature.specs)
+  const [createPr, setCreatePr] = useState((feature.completion ?? 'merge') === 'pr')
+  const [autoComplete, setAutoComplete] = useState(feature.autoComplete ?? false)
   const [busy, setBusy] = useState(false)
 
   const merged = (): Feature => ({
     ...feature,
     title: title.trim() || feature.title,
     description,
-    specs: specs.filter((s) => s.text.trim()).map((s) => ({ ...s, text: s.text.trim() }))
+    specs: specs.filter((s) => s.text.trim()).map((s) => ({ ...s, text: s.text.trim() })),
+    completion: createPr ? 'pr' : 'merge',
+    autoComplete
   })
 
   const dirty =
     title !== feature.title ||
     description !== feature.description ||
+    createPr !== ((feature.completion ?? 'merge') === 'pr') ||
+    autoComplete !== (feature.autoComplete ?? false) ||
     JSON.stringify(specs) !== JSON.stringify(feature.specs)
 
   const hasRealSpec = specs.some((s) => s.text.trim())
@@ -135,6 +141,33 @@ function FeatureCard({ feature }: { feature: Feature }): JSX.Element {
         <button className="btn ghost spec-add" onClick={() => setSpecs((list) => [...list, newSpec()])}>
           ＋ Add spec
         </button>
+      </div>
+
+      <div className="feature-pr-options">
+        <label className="check-row">
+          <input type="checkbox" checked={createPr} onChange={(e) => setCreatePr(e.target.checked)} />
+          <span>
+            Open a PR for review
+            <small className="check-hint">
+              {createPr
+                ? 'The task pushes its branch and opens a PR (needs the gh CLI) instead of merging into the base branch.'
+                : 'Otherwise the task merges straight into its base branch.'}
+            </small>
+          </span>
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={autoComplete}
+            onChange={(e) => setAutoComplete(e.target.checked)}
+          />
+          <span>
+            {createPr ? 'Auto-open it' : 'Auto-merge'} when claude finishes
+            <small className="check-hint">
+              Maestro commits and {createPr ? 'opens the PR' : 'merges'} once the task sits idle.
+            </small>
+          </span>
+        </label>
       </div>
 
       <div className="feature-actions">

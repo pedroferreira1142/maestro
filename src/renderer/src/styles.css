@@ -1456,6 +1456,40 @@ body {
   line-height: 1.4;
 }
 
+/* A checkbox + label row inside a .field (e.g. the PR / auto-complete options). */
+.check-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.check-row input[type='checkbox'] {
+  width: auto;
+  margin-top: 2px;
+  padding: 0;
+  flex: none;
+  cursor: pointer;
+}
+
+.check-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.check-hint {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
 .swatches {
   display: flex;
   gap: 6px;
@@ -2756,6 +2790,14 @@ body {
   align-self: flex-start;
   font-size: 12px;
   color: var(--accent);
+}
+
+.feature-pr-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
 }
 
 .feature-actions {
