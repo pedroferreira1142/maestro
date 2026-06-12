@@ -1,5 +1,9 @@
 # Maestro
 
+> ⚠️ **Disclaimer: this is a vibe-coded app.** Maestro was built almost entirely by Claude Code
+> (including by Maestro driving itself), with light human steering. Treat it as an experiment —
+> expect rough edges, review before relying on it, and use at your own risk.
+
 One window to run and **conduct** multiple Claude Code CLI sessions, each in its own repo, with a
 live file explorer per session and git-worktree parallel tasks. See [PLAN.md](./PLAN.md) and
 [SPECS.md](./SPECS.md).
