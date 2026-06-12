@@ -1,5 +1,11 @@
 import { useRef, useState } from 'react'
-import type { SessionInfo, SessionStatus, WorktreeMeta } from '../../../shared/types'
+import type {
+  SessionInfo,
+  SessionStatus,
+  TerminalInfo,
+  WatchdogAlert,
+  WorktreeMeta
+} from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
 
@@ -10,6 +16,30 @@ export const STATUS_GLYPH: Record<SessionStatus, string> = {
   idle: '○',
   exited: '✕',
   error: '!'
+}
+
+/** Glyph for each watchdog alert — distinct from the instantaneous status glyphs. */
+const WATCHDOG_GLYPH: Record<WatchdogAlert, string> = {
+  stalled: '⏱',
+  unanswered: '⚠'
+}
+
+/**
+ * Time-based watchdog badge for the session's first offending terminal. Hovering
+ * reveals how long that terminal has been continuously in the abnormal status.
+ */
+function WatchdogBadge({ terminal }: { terminal: TerminalInfo }): JSX.Element {
+  const alert = terminal.watchdog!
+  const mins = Math.max(1, Math.round((Date.now() - terminal.statusSince) / 60000))
+  const tip =
+    alert === 'stalled'
+      ? `Possibly stuck — working ${mins}m`
+      : `Unanswered — awaiting input ${mins}m`
+  return (
+    <span className={`watchdog-badge ${alert}`} title={tip}>
+      {WATCHDOG_GLYPH[alert]}
+    </span>
+  )
 }
 
 /** Max conflicted file paths listed in the badge tooltip before '+N more'. */
@@ -200,6 +230,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const worktree = session.config.worktree ?? null
   const category = categories.find((c) => c.id === session.config.categoryId) ?? null
   const queueCount = session.config.promptQueue?.length ?? 0
+  const watchdogTerm = session.watchdog ? session.terminals.find((t) => t.watchdog) : undefined
 
   const commitRename = (): void => {
     setEditing(false)
@@ -221,6 +252,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       onClick={() => setActive(id)}
     >
       <span className={`glyph status-${session.status}`}>{STATUS_GLYPH[session.status]}</span>
+      {watchdogTerm && <WatchdogBadge terminal={watchdogTerm} />}
       <div className="session-meta">
         {editing ? (
           <input

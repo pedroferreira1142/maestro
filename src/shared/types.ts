@@ -6,6 +6,16 @@ export type SessionStatus =
   | 'exited'
   | 'error'
 
+/**
+ * A time-based watchdog alert raised on a claude terminal that the
+ * instantaneous status badges miss:
+ *  - 'stalled'    — continuously 'working' past the stall threshold (a runaway
+ *    loop or a long no-op).
+ *  - 'unanswered' — sat in 'needs-attention' past the unanswered threshold (a
+ *    permission prompt the user forgot).
+ */
+export type WatchdogAlert = 'stalled' | 'unanswered'
+
 export type StartMode = 'fresh' | 'continue'
 
 /**
@@ -496,6 +506,10 @@ export interface TerminalInfo {
   pid: number | null
   lastOutputAt: number
   exitCode: number | null
+  /** ms epoch when the terminal continuously entered its current status (watchdog clock). */
+  statusSince: number
+  /** Active stall/unanswered watchdog alert, or null. Only ever set for claude terminals. */
+  watchdog: WatchdogAlert | null
 }
 
 export interface SessionInfo {
@@ -503,6 +517,8 @@ export interface SessionInfo {
   terminals: TerminalInfo[]
   /** Aggregate status across this session's terminals, for the sidebar. */
   status: SessionStatus
+  /** Aggregate watchdog alert across this session's terminals (first offending), or null. */
+  watchdog: WatchdogAlert | null
 }
 
 export interface DirEntry {
@@ -620,6 +636,18 @@ export interface Settings {
   backgroundImage: string | null
   /** Opacity of the background image layer (0–1); panels stay readable above it. */
   backgroundOpacity: number
+  /** Master on/off switch for the stall/runaway watchdog (badges + notifications). */
+  watchdogEnabled: boolean
+  /**
+   * Minutes a claude terminal may stay continuously 'working' before a 'stalled'
+   * alert fires. 0 disables the stall alert (the watchdog's other half still runs).
+   */
+  watchdogStallMinutes: number
+  /**
+   * Minutes a claude terminal may sit in 'needs-attention' before an 'unanswered'
+   * alert fires. 0 disables the unanswered alert.
+   */
+  watchdogUnansweredMinutes: number
 }
 
 export interface WindowBounds {
@@ -652,7 +680,10 @@ export const DEFAULT_SETTINGS: Settings = {
   ignoreNames: ['.git', 'node_modules', 'dist', 'build', 'out', '.venv', '__pycache__', 'target'],
   notifyOnAttention: true,
   backgroundImage: null,
-  backgroundOpacity: 0.3
+  backgroundOpacity: 0.3,
+  watchdogEnabled: true,
+  watchdogStallMinutes: 10,
+  watchdogUnansweredMinutes: 5
 }
 
 /**

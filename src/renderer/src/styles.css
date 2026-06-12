@@ -236,6 +236,25 @@ body {
   }
 }
 
+/* Time-based watchdog badge — distinct from the instantaneous status glyph. */
+.watchdog-badge {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 14px;
+  cursor: help;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.watchdog-badge.stalled {
+  color: var(--working);
+}
+
+.watchdog-badge.unanswered {
+  color: var(--attention);
+}
+
 /* ---------- usage widget ---------- */
 
 .usage-widget {
