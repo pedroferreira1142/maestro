@@ -197,6 +197,8 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
+  /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
+  notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
   worktreeStates: Record<string, WorktreeTaskState>
   /** Worktree sessions with a readiness check in flight (badge shows 'checking'). */
@@ -309,7 +311,15 @@ interface AppStore {
   closeBroadcast(): void
   /** Queue one prompt onto several sessions at once (broadcast dialog). */
   broadcastPrompt(sessionIds: string[], text: string): Promise<void>
+  /** Show a brief confirmation message that dismisses itself. */
+  showNotice(text: string): void
 }
+
+/** How long a notice (brief confirmation) stays on screen. */
+const NOTICE_MS = 2000
+
+/** Identifies the latest showNotice call, so only it clears the message. */
+let noticeNonce = 0
 
 /** Default active tab for a session: its persisted active terminal, else first. */
 function defaultActive(session: SessionInfo): string {
@@ -345,6 +355,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   globalSearchOpen: false,
   paletteOpen: false,
   broadcastOpen: false,
+  notice: null,
   worktreeStates: {},
   worktreeChecking: {},
 
@@ -1076,6 +1087,14 @@ export const useStore = create<AppStore>()((set, get) => ({
     if (!trimmed || sessionIds.length === 0) return
     await Promise.all(sessionIds.map((id) => window.api.queueAdd(id, trimmed)))
     await get().refresh()
+  },
+
+  showNotice(text) {
+    const nonce = ++noticeNonce
+    set({ notice: text })
+    setTimeout(() => {
+      if (noticeNonce === nonce) set({ notice: null })
+    }, NOTICE_MS)
   },
 
   applyFsEvents(id, events) {

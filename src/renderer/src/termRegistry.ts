@@ -59,6 +59,38 @@ export function focusActiveTerminal(): void {
   terms.get(tab)?.term.focus()
 }
 
+/**
+ * Serialize one terminal's full scrollback buffer to plain text. Soft-wrapped
+ * rows are joined into single logical lines (same continuation handling as
+ * searchBuffer) and trailing blank lines are trimmed. Buffer cells hold the
+ * *rendered* output, so the result is naturally free of ANSI escapes.
+ * Returns null when no live xterm is registered for the id.
+ */
+export function getTranscript(terminalId: string): string | null {
+  const entry = terms.get(terminalId)
+  if (!entry) return null
+  const buf = entry.term.buffer.active
+  const lines: string[] = []
+  let row = 0
+  while (row < buf.length) {
+    let text = ''
+    for (let r = row; ; r++) {
+      const line = buf.getLine(r)
+      if (!line) {
+        row = r + 1
+        break
+      }
+      const wrapped = !!buf.getLine(r + 1)?.isWrapped
+      text += line.translateToString(!wrapped)
+      row = r + 1
+      if (!wrapped) break
+    }
+    lines.push(text)
+  }
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+  return lines.join('\n')
+}
+
 // ---------- global scrollback search ----------
 
 /** One occurrence of a query in a terminal's scrollback buffer. */

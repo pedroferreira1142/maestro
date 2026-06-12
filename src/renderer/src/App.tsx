@@ -45,6 +45,7 @@ export default function App(): JSX.Element {
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const broadcastOpen = useStore((s) => s.broadcastOpen)
+  const notice = useStore((s) => s.notice)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -201,6 +202,7 @@ export default function App(): JSX.Element {
       {globalSearchOpen && <GlobalSearchDialog />}
       {paletteOpen && <CommandPalette />}
       {broadcastOpen && <BroadcastDialog />}
+      {notice && <div className="app-notice">{notice}</div>}
     </div>
   )
 }
