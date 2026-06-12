@@ -10,6 +10,8 @@ import {
   MergeResult,
   PullRequestResult,
   RepoCategory,
+  RepoCheckpoint,
+  RestoreCheckpointResult,
   ReusableAction,
   RunActionResult,
   SessionConfig,
@@ -19,6 +21,7 @@ import {
   TerminalConfig,
   TerminalInfo,
   TerminalKind,
+  WatchdogAlert,
   WorktreeAutoCompleteEvent,
   WorktreeInfo,
   WorktreeTaskState
@@ -70,6 +73,13 @@ const QUEUE_IDLE_DELAY_MS = 3000
  * restarts on every idle transition.
  */
 const AUTO_COMPLETE_IDLE_DELAY_MS = 90_000
+
+/**
+ * How often the stall/runaway watchdog re-checks each claude terminal's elapsed
+ * time in its current status against the thresholds. Far finer than the
+ * minute-scale thresholds, so a crossed badge/notification appears promptly.
+ */
+const WATCHDOG_TICK_MS = 5000
 
 /**
  * Printed between replayed scrollback and the live process output on restore.
@@ -135,6 +145,18 @@ export class SessionManager {
 
   /** On-disk tail of each terminal's output, replayed on app restart. */
   private scrollback = new ScrollbackStore()
+
+  /**
+   * Per-claude-terminal watchdog episode bookkeeping, keyed by terminal id.
+   * `notifiedSince` is the `statusSince` stamp of the episode we already fired a
+   * notification for (so each episode notifies at most once); it resets when the
+   * status — and thus the stamp — changes. `lastAlert` is the previous tick's
+   * alert, used to push a `session:changed` only when a badge appears/clears.
+   */
+  private watchdog = new Map<string, { notifiedSince: number | null; lastAlert: WatchdogAlert | null }>()
+
+  /** The watchdog interval; null until startWatchdog() runs. */
+  private watchdogTimer: NodeJS.Timeout | null = null
 
   constructor(
     private persistence: Persistence,
@@ -298,6 +320,37 @@ export class SessionManager {
     if (res.code !== 0) throw new Error(res.output || 'git init failed')
     this.notifyChanged()
     return Git.worktreeInfo(config.folder)
+  }
+
+  /**
+   * Snapshot a session's working tree into a labeled checkpoint (the safety
+   * net taken before a risky prompt). Throws git's message on failure.
+   */
+  async createCheckpoint(sessionId: string, label: string): Promise<RepoCheckpoint> {
+    const config = this.getConfig(sessionId)
+    if (!config) throw new Error('Unknown session')
+    return Git.createCheckpoint(config.folder, label)
+  }
+
+  /** Recent checkpoints for a session's repo, newest first. */
+  async listCheckpoints(sessionId: string): Promise<RepoCheckpoint[]> {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    return Git.listCheckpoints(config.folder)
+  }
+
+  /** Restore a session's working tree back to a checkpoint (guarded, reversible). */
+  async restoreCheckpoint(sessionId: string, id: string): Promise<RestoreCheckpointResult> {
+    const config = this.getConfig(sessionId)
+    if (!config) return { ok: false, output: 'Unknown session', safety: null }
+    return Git.restoreCheckpoint(config.folder, id)
+  }
+
+  /** Delete one checkpoint from a session's repo. */
+  async deleteCheckpoint(sessionId: string, id: string): Promise<void> {
+    const config = this.getConfig(sessionId)
+    if (!config) throw new Error('Unknown session')
+    return Git.deleteCheckpoint(config.folder, id)
   }
 
   /**
@@ -811,7 +864,15 @@ export class SessionManager {
     if (!terminal) return
     this.ptys.get(terminalId)?.kill()
     if (terminal.kind === 'claude') this.applyProfile(config)
-    this.spawnTerminal(config, terminal, mode === 'resume' ? 'continue' : 'fresh')
+    // On resume, replay the persisted scrollback above the divider so visible
+    // history survives the respawn (same seeding restoreAll does on launch).
+    const history = mode === 'resume' ? this.scrollback.load(terminalId) : ''
+    this.spawnTerminal(
+      config,
+      terminal,
+      mode === 'resume' ? 'continue' : 'fresh',
+      history || undefined
+    )
     this.notifyChanged()
   }
 
@@ -829,6 +890,28 @@ export class SessionManager {
     this.applyProfile(config)
     this.notifyChanged()
     return config.terminals.filter((t) => t.kind === 'claude').map((t) => t.id)
+  }
+
+  /**
+   * Replace a session's per-session environment map and report which of its
+   * terminals must be restarted for the new environment to take effect — env is
+   * only read by a process at spawn time. Unlike category, env reaches every
+   * terminal (claude and shells alike), so all *currently-running* terminals are
+   * reported; terminals that aren't running are left alone (not force-started).
+   * Empty/whitespace-only keys are dropped, and an empty map clears the field.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): string[] {
+    const config = this.getConfig(sessionId)
+    if (!config) return []
+    const cleaned: Record<string, string> = {}
+    for (const [k, v] of Object.entries(env)) {
+      const key = k.trim()
+      if (key) cleaned[key] = v
+    }
+    config.env = Object.keys(cleaned).length > 0 ? cleaned : undefined
+    this.persistence.scheduleSave()
+    this.notifyChanged()
+    return config.terminals.filter((t) => this.ptys.get(t.id)?.alive).map((t) => t.id)
   }
 
   /**
@@ -1106,6 +1189,8 @@ export class SessionManager {
 
   disposeAll(): void {
     this.scrollback.flushAll()
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer)
+    this.watchdogTimer = null
     for (const timer of this.queueTimers.values()) clearTimeout(timer)
     this.queueTimers.clear()
     for (const timer of this.autoCompleteTimers.values()) clearTimeout(timer)
@@ -1121,17 +1206,22 @@ export class SessionManager {
     mode: StartMode,
     history?: string
   ): void {
-    const session = new PtySession(terminal, config.folder, {
-      onData: (id, data) => {
-        this.getWin()?.webContents.send('pty:data', id, data)
+    const session = new PtySession(
+      terminal,
+      config.folder,
+      {
+        onData: (id, data) => {
+          this.getWin()?.webContents.send('pty:data', id, data)
+        },
+        onStatus: (id, status) => this.handleStatus(id, status),
+        onExit: () => {
+          this.getWin()?.webContents.send('session:changed')
+        },
+        // Snapshot lazily at write time — the store throttles to ~1 write/s.
+        onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
       },
-      onStatus: (id, status) => this.handleStatus(id, status),
-      onExit: () => {
-        this.getWin()?.webContents.send('session:changed')
-      },
-      // Snapshot lazily at write time — the store throttles to ~1 write/s.
-      onOutput: (id) => this.scrollback.markDirty(id, () => session.tail(SCROLLBACK_MAX_BYTES))
-    })
+      config.env ?? {}
+    )
     if (history) session.seedHistory(history + SCROLLBACK_DIVIDER)
     this.ptys.set(terminal.id, session)
     session.spawn(mode)
@@ -1182,15 +1272,118 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Begin the periodic stall/runaway watchdog. Idempotent — a second call is a
+   * no-op so it can't pile up timers. Each tick re-derives every live claude
+   * terminal's alert and (a) fires exactly one OS notification per episode the
+   * first time it crosses a threshold, and (b) pushes a `session:changed` when a
+   * badge appears or clears so the sidebar updates without waiting for another
+   * trigger.
+   */
+  startWatchdog(): void {
+    if (this.watchdogTimer) return
+    this.watchdogTimer = setInterval(() => this.watchdogTick(), WATCHDOG_TICK_MS)
+  }
+
+  private watchdogTick(): void {
+    const liveClaudeIds = new Set<string>()
+    let changed = false
+    for (const config of this.state.sessions) {
+      for (const terminal of config.terminals) {
+        if (terminal.kind !== 'claude') continue
+        const pty = this.ptys.get(terminal.id)
+        if (!pty?.alive) continue
+        liveClaudeIds.add(terminal.id)
+
+        const status = pty.detector.current
+        const since = pty.detector.since
+        const alert = this.watchdogAlert(terminal, status, since)
+        const prev = this.watchdog.get(terminal.id) ?? { notifiedSince: null, lastAlert: null }
+
+        // A fresh episode (new status entry) re-arms the notification.
+        let notifiedSince = prev.notifiedSince === since ? prev.notifiedSince : null
+        if (alert && notifiedSince !== since) {
+          this.fireWatchdogNotification(config, terminal, alert, since)
+          notifiedSince = since
+        }
+        if (alert !== prev.lastAlert) changed = true
+        this.watchdog.set(terminal.id, { notifiedSince, lastAlert: alert })
+      }
+    }
+    // Forget terminals that closed/exited, so a later re-spawn starts clean.
+    for (const id of [...this.watchdog.keys()]) {
+      if (!liveClaudeIds.has(id)) this.watchdog.delete(id)
+    }
+    if (changed) this.notifyChanged()
+  }
+
+  /** Fire one stall/unanswered OS notification, reusing the attention pattern. */
+  private fireWatchdogNotification(
+    config: SessionConfig,
+    terminal: TerminalConfig,
+    alert: WatchdogAlert,
+    since: number
+  ): void {
+    const win = this.getWin()
+    const mins = Math.max(1, Math.round((Date.now() - since) / 60000))
+    const body =
+      alert === 'stalled'
+        ? `Claude has been working ${mins} min without stopping — it may be stuck.`
+        : `Claude has been awaiting your input for ${mins} min.`
+    if (!(win?.isFocused() ?? false)) win?.flashFrame(true)
+    const notification = new Notification({
+      title: `${config.name} · ${terminal.title}`,
+      body
+    })
+    notification.on('click', () => {
+      win?.show()
+      win?.focus()
+      win?.webContents.send('app:focus-session', config.id, terminal.id)
+    })
+    notification.show()
+  }
+
   private terminalInfo(terminal: TerminalConfig): TerminalInfo {
     const pty = this.ptys.get(terminal.id)
+    const status = pty?.detector.current ?? 'exited'
+    const statusSince = pty?.detector.since ?? 0
     return {
       config: terminal,
-      status: pty?.detector.current ?? 'exited',
+      status,
       pid: pty?.pid ?? null,
       lastOutputAt: pty?.detector.lastOutput ?? 0,
-      exitCode: pty?.exitCode ?? null
+      exitCode: pty?.exitCode ?? null,
+      statusSince,
+      watchdog: pty?.alive ? this.watchdogAlert(terminal, status, statusSince) : null
     }
+  }
+
+  /**
+   * Derive a terminal's current watchdog alert purely from its kind, status,
+   * how long it has held that status, and the persisted thresholds — no episode
+   * state. Returns null for non-claude terminals, when the watchdog is off, when
+   * a threshold is 0, or when the elapsed time hasn't crossed it yet.
+   */
+  private watchdogAlert(
+    terminal: TerminalConfig,
+    status: SessionStatus,
+    statusSince: number
+  ): WatchdogAlert | null {
+    if (terminal.kind !== 'claude') return null
+    const s = this.state.settings
+    if (!s.watchdogEnabled || !statusSince) return null
+    const elapsedMin = (Date.now() - statusSince) / 60000
+    if (status === 'working' && s.watchdogStallMinutes > 0 && elapsedMin >= s.watchdogStallMinutes) {
+      return 'stalled'
+    }
+    if (
+      status === 'needs-attention' &&
+      s.watchdogUnansweredMinutes > 0 &&
+      elapsedMin >= s.watchdogUnansweredMinutes
+    ) {
+      return 'unanswered'
+    }
+    return null
   }
 
   private toInfo(config: SessionConfig): SessionInfo {
@@ -1200,7 +1393,8 @@ export class SessionManager {
     return {
       config,
       terminals,
-      status: this.aggregateStatus(terminals)
+      status: this.aggregateStatus(terminals),
+      watchdog: terminals.find((t) => t.watchdog)?.watchdog ?? null
     }
   }
 

@@ -3,6 +3,7 @@ import type {
   AttachmentInfo,
   AutoExpandConfig,
   AutoExpandRun,
+  ConductorMessage,
   Feature,
   FsEvent,
   RepoCategory,
@@ -18,6 +19,7 @@ import type {
   WorktreeCompletion,
   WorktreeTaskState
 } from '../../shared/types'
+import { type ClaudeModelAlias, getModelAlias, setModelAlias } from '../../shared/claudeArgs'
 
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
 export interface AttentionEntry {
@@ -170,6 +172,8 @@ interface AppStore {
   pendingWorktree: PendingWorktree | null
   /** Whether the category-management dialog is open. */
   categoriesOpen: boolean
+  /** The session whose environment-variables editor is open; null when closed. */
+  envEditorSessionId: string | null
   /** Saved reusable actions (shell commands), shared across sessions. */
   actions: ReusableAction[]
   /** Action create/edit dialog payload; non-null while the dialog is open. */
@@ -202,6 +206,10 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
+  /** Which surface the main area shows: a session's terminals, or the Conductor chat. */
+  view: 'session' | 'conductor'
+  /** The Conductor conversation, oldest first (pushed from main). */
+  conductorMessages: ConductorMessage[]
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -241,6 +249,12 @@ interface AppStore {
   refreshWorktreeState(sessionId: string): Promise<void>
   /** Force the Git panel to reload its status + history. */
   refreshGit(): void
+  /** Snapshot the working tree into a labeled checkpoint (safety net). */
+  createCheckpoint(sessionId: string, label: string): Promise<void>
+  /** Restore the working tree back to a checkpoint (confirms first; reversible). */
+  restoreCheckpoint(sessionId: string, id: string, label: string): Promise<void>
+  /** Delete one checkpoint. */
+  deleteCheckpoint(sessionId: string, id: string): Promise<void>
   /** Append a prompt to a session's auto-dispatch queue. */
   queueAdd(sessionId: string, text: string): Promise<void>
   /** Delete one queued prompt. */
@@ -252,6 +266,14 @@ interface AppStore {
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
   openCategories(): void
   closeCategories(): void
+  openEnvEditor(sessionId: string): void
+  closeEnvEditor(): void
+  /**
+   * Persist a session's per-session environment variables, then restart its
+   * affected running terminals (resume for claude, fresh for shells) so the new
+   * environment takes effect without the user restarting them by hand.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): Promise<void>
   loadActions(): Promise<void>
   /** Create or update one action (upsert by id). */
   saveAction(action: ReusableAction): Promise<void>
@@ -292,6 +314,12 @@ interface AppStore {
   addTerminal(sessionId: string, kind: TerminalKind): Promise<void>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
   restartTerminal(terminalId: string, mode: 'fresh' | 'resume'): Promise<void>
+  /**
+   * Switch a claude terminal's model: rewrite its claudeArgs' --model to
+   * `alias` (null = Default, no flag), persist it, and resume-respawn so the
+   * live conversation continues on the new model. No-op when already selected.
+   */
+  setTerminalModel(terminalId: string, alias: ClaudeModelAlias | null): Promise<void>
   renameTerminal(terminalId: string, title: string): Promise<void>
   openFile(sessionId: string, relPath: string): void
   /** Open (or focus) the git diff tab for a changed file (repo-root-relative path). */
@@ -326,6 +354,22 @@ interface AppStore {
   closeBroadcast(): void
   /** Queue one prompt onto several sessions at once (broadcast dialog). */
   broadcastPrompt(sessionIds: string[], text: string): Promise<void>
+  /** Switch the main area to the Conductor chat. */
+  openConductor(): void
+  /** Load the persisted Conductor conversation. */
+  loadConductor(): Promise<void>
+  /** Replace the conversation (pushed from main on every change). */
+  applyConductor(messages: ConductorMessage[]): void
+  /** Send a user message to the Conductor. */
+  sendConductor(text: string): Promise<void>
+  /** Approve (run) one proposed Conductor action. */
+  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Approve every non-destructive proposed action on a turn. */
+  approveAllConductorActions(messageId: string): Promise<void>
+  /** Reject one proposed Conductor action. */
+  rejectConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Wipe the Conductor conversation. */
+  clearConductor(): Promise<void>
   /** Show a brief confirmation message that dismisses itself. */
   showNotice(text: string): void
 }
@@ -355,6 +399,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   pendingNewSession: null,
   pendingWorktree: null,
   categoriesOpen: false,
+  envEditorSessionId: null,
   actions: [],
   actionEditor: null,
   sentinelRuns: {},
@@ -371,6 +416,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   globalSearchOpen: false,
   paletteOpen: false,
   broadcastOpen: false,
+  view: 'session',
+  conductorMessages: [],
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -382,7 +429,11 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.api.getBackgroundImage()
     ])
     set({ settings, backgroundDataUrl })
-    await Promise.all([get().loadCategoriesAndSkills(), get().loadActions()])
+    await Promise.all([
+      get().loadCategoriesAndSkills(),
+      get().loadActions(),
+      get().loadConductor()
+    ])
     await get().refresh()
     const { sessions } = get()
     const active =
@@ -441,7 +492,8 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   setActive(id) {
-    set({ activeId: id })
+    // Selecting a session always leaves the Conductor view.
+    set({ activeId: id, view: 'session' })
     void window.api.setActiveSession(id)
     void get().refreshLinkedFeature()
   },
@@ -509,6 +561,47 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   refreshGit() {
     set((st) => ({ gitNonce: st.gitNonce + 1 }))
+  },
+
+  async createCheckpoint(sessionId, label) {
+    try {
+      const cp = await window.api.createCheckpoint(sessionId, label)
+      get().refreshGit()
+      get().showNotice(`Checkpoint saved: ${cp.label}`)
+    } catch (err) {
+      window.alert(`Couldn't create a checkpoint:\n\n${(err as Error).message}`)
+    }
+  },
+
+  async restoreCheckpoint(sessionId, id, label) {
+    if (
+      !window.confirm(
+        `Restore the working tree to checkpoint "${label}"?\n\n` +
+          `Your current uncommitted changes will be replaced — but they're saved as a ` +
+          `new checkpoint first, so this can be undone.`
+      )
+    )
+      return
+    try {
+      const res = await window.api.restoreCheckpoint(sessionId, id)
+      get().refreshGit()
+      if (res.ok) {
+        get().showNotice(`Restored checkpoint: ${label}`)
+      } else {
+        window.alert(`Couldn't restore the checkpoint:\n\n${res.output}`)
+      }
+    } catch (err) {
+      window.alert(`Couldn't restore the checkpoint:\n\n${(err as Error).message}`)
+    }
+  },
+
+  async deleteCheckpoint(sessionId, id) {
+    try {
+      await window.api.deleteCheckpoint(sessionId, id)
+      get().refreshGit()
+    } catch (err) {
+      window.alert(`Couldn't delete the checkpoint:\n\n${(err as Error).message}`)
+    }
   },
 
   async confirmWorktreeTask(opts) {
@@ -822,6 +915,26 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({ categoriesOpen: false })
   },
 
+  openEnvEditor(sessionId) {
+    set({ envEditorSessionId: sessionId })
+  },
+
+  closeEnvEditor() {
+    set({ envEditorSessionId: null })
+  },
+
+  async setSessionEnv(sessionId, env) {
+    const restartIds = await window.api.setSessionEnv(sessionId, env)
+    // Env is only read at spawn time, so restart the affected running terminals.
+    // Claude resumes (--continue keeps the conversation); shells respawn fresh.
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    for (const id of restartIds) {
+      const kind = session?.terminals.find((t) => t.config.id === id)?.config.kind
+      await get().restartTerminal(id, kind === 'claude' ? 'resume' : 'fresh')
+    }
+    await get().refresh()
+  },
+
   async loadActions() {
     set({ actions: await window.api.listActions() })
   },
@@ -1021,6 +1134,20 @@ export const useStore = create<AppStore>()((set, get) => ({
     await get().refresh()
   },
 
+  async setTerminalModel(terminalId, alias) {
+    const term = get()
+      .sessions.flatMap((s) => s.terminals)
+      .find((t) => t.config.id === terminalId)
+    if (!term || term.config.kind !== 'claude') return
+    // Already on this model — leave claudeArgs and the PTY untouched (no flicker).
+    if (getModelAlias(term.config.claudeArgs) === alias) return
+    const claudeArgs = setModelAlias(term.config.claudeArgs, alias)
+    await window.api.updateTerminal(terminalId, { claudeArgs })
+    // Resume-respawn so claude relaunches with the new --model and --continue;
+    // restartTerminal bumps the epoch so TerminalHost remounts xterm.
+    await get().restartTerminal(terminalId, 'resume')
+  },
+
   async renameTerminal(terminalId, title) {
     await window.api.updateTerminal(terminalId, { title })
     await get().refresh()
@@ -1092,11 +1219,19 @@ export const useStore = create<AppStore>()((set, get) => ({
     set((st) => {
       const sessions = st.sessions.map((s) => {
         if (!s.terminals.some((t) => t.config.id === terminalId)) return s
+        // A status transition resets the watchdog episode for that terminal:
+        // clear its badge now (the next main refresh re-derives any fresh one).
         const terminals = s.terminals.map((t) =>
-          t.config.id === terminalId ? { ...t, status, lastOutputAt: Date.now() } : t
+          t.config.id === terminalId
+            ? { ...t, status, lastOutputAt: Date.now(), statusSince: Date.now(), watchdog: null }
+            : t
         )
         const next = { ...s, terminals }
-        return { ...next, status: aggregate(next) }
+        return {
+          ...next,
+          status: aggregate(next),
+          watchdog: terminals.find((t) => t.watchdog)?.watchdog ?? null
+        }
       })
       // Keep the attention queue in sync with the transition: enqueue when a
       // terminal enters 'needs-attention', dequeue the moment it leaves.
@@ -1225,6 +1360,42 @@ export const useStore = create<AppStore>()((set, get) => ({
     if (!trimmed || sessionIds.length === 0) return
     await Promise.all(sessionIds.map((id) => window.api.queueAdd(id, trimmed)))
     await get().refresh()
+  },
+
+  openConductor() {
+    set({ view: 'conductor' })
+  },
+
+  async loadConductor() {
+    set({ conductorMessages: await window.api.listConductor() })
+  },
+
+  applyConductor(messages) {
+    set({ conductorMessages: messages })
+    // An approved action may have created/changed sessions — keep the list fresh.
+    void get().refresh()
+  },
+
+  async sendConductor(text) {
+    if (!text.trim()) return
+    await window.api.sendConductor(text)
+  },
+
+  async approveConductorAction(messageId, actionId) {
+    await window.api.approveConductorAction(messageId, actionId)
+  },
+
+  async approveAllConductorActions(messageId) {
+    await window.api.approveAllConductorActions(messageId)
+  },
+
+  async rejectConductorAction(messageId, actionId) {
+    await window.api.rejectConductorAction(messageId, actionId)
+  },
+
+  async clearConductor() {
+    await window.api.clearConductor()
+    set({ conductorMessages: [] })
   },
 
   showNotice(text) {

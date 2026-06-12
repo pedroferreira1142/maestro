@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   AutoExpandRun,
+  ConductorMessage,
   Feature,
   FsEvent,
   RepoCategory,
@@ -57,6 +58,13 @@ const api: Api = {
   gitChangedFiles: (sessionId) => ipcRenderer.invoke('git:changedFiles', sessionId),
   gitFileDiff: (sessionId, path) => ipcRenderer.invoke('git:fileDiff', sessionId, path),
 
+  createCheckpoint: (sessionId, label) =>
+    ipcRenderer.invoke('checkpoint:create', sessionId, label),
+  listCheckpoints: (sessionId) => ipcRenderer.invoke('checkpoint:list', sessionId),
+  restoreCheckpoint: (sessionId, id) =>
+    ipcRenderer.invoke('checkpoint:restore', sessionId, id),
+  deleteCheckpoint: (sessionId, id) => ipcRenderer.invoke('checkpoint:delete', sessionId, id),
+
   addTerminal: (sessionId, kind) => ipcRenderer.invoke('terminal:add', sessionId, kind),
   closeTerminal: (sessionId, terminalId) =>
     ipcRenderer.invoke('terminal:close', sessionId, terminalId),
@@ -85,6 +93,18 @@ const api: Api = {
   onSentinelRuns: (cb) =>
     subscribe('sentinel:runs', (id, runs) => cb(id as string, runs as SentinelRun[])),
 
+  listConductor: () => ipcRenderer.invoke('conductor:list'),
+  sendConductor: (text) => ipcRenderer.invoke('conductor:send', text),
+  approveConductorAction: (messageId, actionId) =>
+    ipcRenderer.invoke('conductor:approve', messageId, actionId),
+  approveAllConductorActions: (messageId) =>
+    ipcRenderer.invoke('conductor:approveAll', messageId),
+  rejectConductorAction: (messageId, actionId) =>
+    ipcRenderer.invoke('conductor:reject', messageId, actionId),
+  clearConductor: () => ipcRenderer.invoke('conductor:clear'),
+  onConductorChanged: (cb) =>
+    subscribe('conductor:changed', (msgs) => cb(msgs as ConductorMessage[])),
+
   listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
   featureForTask: (sessionId) => ipcRenderer.invoke('feature:forTask', sessionId),
   saveFeature: (feature: Feature) => ipcRenderer.invoke('feature:save', feature),
@@ -105,6 +125,7 @@ const api: Api = {
     ipcRenderer.invoke('categories:save', categories),
   setSessionCategory: (sessionId, categoryId) =>
     ipcRenderer.invoke('session:setCategory', sessionId, categoryId),
+  setSessionEnv: (sessionId, env) => ipcRenderer.invoke('session:setEnv', sessionId, env),
   listClaudeSkills: () => ipcRenderer.invoke('claude:listSkills'),
   listUserMcpServers: () => ipcRenderer.invoke('claude:listMcpServers'),
   detectCategory: (folder) => ipcRenderer.invoke('category:detect', folder),

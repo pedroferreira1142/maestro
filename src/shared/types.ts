@@ -19,7 +19,25 @@ export type SessionStatus =
   | 'exited'
   | 'error'
 
+/**
+ * A time-based watchdog alert raised on a claude terminal that the
+ * instantaneous status badges miss:
+ *  - 'stalled'    — continuously 'working' past the stall threshold (a runaway
+ *    loop or a long no-op).
+ *  - 'unanswered' — sat in 'needs-attention' past the unanswered threshold (a
+ *    permission prompt the user forgot).
+ */
+export type WatchdogAlert = 'stalled' | 'unanswered'
+
 export type StartMode = 'fresh' | 'continue'
+
+/**
+ * DataTransfer MIME type used when dragging a file row out of the explorer
+ * onto a terminal. Carries the file's session-relative path (forward-slash
+ * form), distinct from the OS file list so terminal drops can tell an
+ * explorer-path drag apart from an external image-file drop.
+ */
+export const MAESTRO_PATH_MIME = 'application/x-maestro-path'
 
 /**
  * The kind of program a terminal runs. `claude` is the default.
@@ -170,6 +188,13 @@ export interface SessionConfig {
   expandedPaths: string[]
   /** Context-profile category for this repo; null = leave claude's defaults. */
   categoryId?: string | null
+  /**
+   * Per-session environment variables overlaid on the inherited process
+   * environment of every terminal this session spawns (claude and shells alike).
+   * A session entry overrides an inherited variable of the same name; absent =
+   * no overrides. Empty/whitespace-only keys are never stored.
+   */
+  env?: Record<string, string>
   /** Set when this session is a git-worktree parallel task; null otherwise. */
   worktree?: WorktreeMeta | null
   /** Background watcher agents configured for this session. */
@@ -427,6 +452,39 @@ export interface GitFileDiff {
   truncated: boolean
 }
 
+// ---------- repo checkpoints (working-tree safety net) ----------
+
+/**
+ * One working-tree snapshot taken before a risky prompt. Stored as a commit on
+ * a dedicated `refs/maestro-checkpoints/<id>` ref (HEAD and the user's index are
+ * never touched), so a checkpoint is just a labeled, timestamped tree the user
+ * can restore back to. Listed newest-first in the Git panel.
+ */
+export interface RepoCheckpoint {
+  /** Stable id (the ref name suffix), used to restore/delete this checkpoint. */
+  id: string
+  /** Full ref, e.g. 'refs/maestro-checkpoints/1718200000000-1'. */
+  ref: string
+  /** Commit OID the snapshot tree lives on. */
+  hash: string
+  /** Human label captured at checkpoint time (the commit subject). */
+  label: string
+  /** When the checkpoint was taken, ms since epoch. */
+  createdAt: number
+}
+
+/** Outcome of restoring the working tree back to a checkpoint. */
+export interface RestoreCheckpointResult {
+  ok: boolean
+  /** Combined git output, surfaced to the user on failure. */
+  output: string
+  /**
+   * Safety checkpoint auto-taken of the pre-restore working tree (so the
+   * restore itself is reversible); null only when no snapshot was needed.
+   */
+  safety: RepoCheckpoint | null
+}
+
 // ---------- features & specs ----------
 
 /** One requirement line within a feature. `done` is a manual authoring checkbox. */
@@ -473,6 +531,63 @@ export interface Feature {
   /** When true, the implementing task auto-completes once claude finishes. */
   autoComplete?: boolean
   createdAt: number
+}
+
+// ---------- conductor (app-level AI chat over all sessions) ----------
+
+/**
+ * One management action the Conductor can take on the user's behalf. The
+ * headless planner proposes these; Maestro only runs one after the user
+ * approves it (per the propose→confirm model). `args` is kind-specific and
+ * validated in main before dispatch to an existing service.
+ */
+export type ConductorActionKind =
+  | 'create_session'
+  | 'author_feature'
+  | 'implement_feature'
+  | 'create_worktree_task'
+  | 'queue_prompt'
+  | 'broadcast_prompt'
+  | 'run_auto_expand'
+  | 'merge_worktree'
+  | 'remove_worktree'
+
+/**
+ * How dangerous an action is, derived in main from the kind (never trusted
+ * from the model): 'safe' = read-only/no side effect, 'write' = creates or
+ * queues work, 'destructive' = irreversible (merge, worktree removal).
+ */
+export type ConductorRisk = 'safe' | 'write' | 'destructive'
+
+export type ConductorActionStatus = 'proposed' | 'running' | 'done' | 'error' | 'rejected'
+
+/** A single proposed (then approved/run) management action. */
+export interface ConductorAction {
+  id: string
+  kind: ConductorActionKind
+  /** One-line human description shown on the approval card. */
+  summary: string
+  risk: ConductorRisk
+  /** Kind-specific parameters; validated in main on execute. */
+  args: Record<string, unknown>
+  status: ConductorActionStatus
+  /** Success detail or error message, set after the action runs. */
+  result?: string
+}
+
+/** One turn in the Conductor conversation (persisted to userData/conductor.json). */
+export interface ConductorMessage {
+  id: string
+  role: 'user' | 'assistant'
+  /** Markdown for assistant turns; plain text for user turns. */
+  text: string
+  at: number
+  /** Actions proposed by an assistant turn (absent/empty when none). */
+  actions?: ConductorAction[]
+  /** True while the assistant turn is still being generated. */
+  pending?: boolean
+  /** Turn-level failure (agent missing, timeout, or unparseable output). */
+  error?: string
 }
 
 /** Git facts about a session's folder, used to gate/prefill the parallel-task UI. */
@@ -569,6 +684,10 @@ export interface TerminalInfo {
   pid: number | null
   lastOutputAt: number
   exitCode: number | null
+  /** ms epoch when the terminal continuously entered its current status (watchdog clock). */
+  statusSince: number
+  /** Active stall/unanswered watchdog alert, or null. Only ever set for claude terminals. */
+  watchdog: WatchdogAlert | null
 }
 
 export interface SessionInfo {
@@ -576,6 +695,8 @@ export interface SessionInfo {
   terminals: TerminalInfo[]
   /** Aggregate status across this session's terminals, for the sidebar. */
   status: SessionStatus
+  /** Aggregate watchdog alert across this session's terminals (first offending), or null. */
+  watchdog: WatchdogAlert | null
 }
 
 export interface DirEntry {
@@ -722,6 +843,18 @@ export interface Settings {
   backgroundImage: string | null
   /** Opacity of the background image layer (0–1); panels stay readable above it. */
   backgroundOpacity: number
+  /** Master on/off switch for the stall/runaway watchdog (badges + notifications). */
+  watchdogEnabled: boolean
+  /**
+   * Minutes a claude terminal may stay continuously 'working' before a 'stalled'
+   * alert fires. 0 disables the stall alert (the watchdog's other half still runs).
+   */
+  watchdogStallMinutes: number
+  /**
+   * Minutes a claude terminal may sit in 'needs-attention' before an 'unanswered'
+   * alert fires. 0 disables the unanswered alert.
+   */
+  watchdogUnansweredMinutes: number
 }
 
 export interface WindowBounds {
@@ -754,7 +887,10 @@ export const DEFAULT_SETTINGS: Settings = {
   ignoreNames: ['.git', 'node_modules', 'dist', 'build', 'out', '.venv', '__pycache__', 'target'],
   notifyOnAttention: true,
   backgroundImage: null,
-  backgroundOpacity: 0.3
+  backgroundOpacity: 0.3,
+  watchdogEnabled: true,
+  watchdogStallMinutes: 10,
+  watchdogUnansweredMinutes: 5
 }
 
 /**

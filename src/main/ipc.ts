@@ -23,6 +23,7 @@ import {
 } from './Attachments'
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
+import { ConductorService } from './ConductorService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
@@ -48,6 +49,7 @@ export function registerIpc(
   sentinels: SentinelService,
   features: FeatureService,
   autoExpand: AutoExpandService,
+  conductor: ConductorService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -102,6 +104,20 @@ export function registerIpc(
     sessions.getGitFileDiff(sessionId, path)
   )
 
+  // --- repo checkpoints (working-tree safety net) ---
+  ipcMain.handle('checkpoint:create', (_e, sessionId: string, label: string) =>
+    sessions.createCheckpoint(sessionId, label)
+  )
+  ipcMain.handle('checkpoint:list', (_e, sessionId: string) =>
+    sessions.listCheckpoints(sessionId)
+  )
+  ipcMain.handle('checkpoint:restore', (_e, sessionId: string, id: string) =>
+    sessions.restoreCheckpoint(sessionId, id)
+  )
+  ipcMain.handle('checkpoint:delete', (_e, sessionId: string, id: string) =>
+    sessions.deleteCheckpoint(sessionId, id)
+  )
+
   // --- terminals (within a session's folder) ---
   ipcMain.handle('terminal:add', (_e, sessionId: string, kind: TerminalKind) =>
     sessions.addTerminal(sessionId, kind)
@@ -138,6 +154,9 @@ export function registerIpc(
   ipcMain.handle('session:setCategory', (_e, sessionId: string, categoryId: string | null) =>
     sessions.setSessionCategory(sessionId, categoryId)
   )
+  ipcMain.handle('session:setEnv', (_e, sessionId: string, env: Record<string, string>) =>
+    sessions.setSessionEnv(sessionId, env)
+  )
   ipcMain.handle('claude:listSkills', () => scanSkills())
   ipcMain.handle('claude:listMcpServers', () => readUserMcpServers())
   ipcMain.handle('category:detect', (_e, folder: string) =>
@@ -163,6 +182,20 @@ export function registerIpc(
   ipcMain.handle('autoexpand:ensureBranch', (_e, sessionId: string) =>
     autoExpand.prepareBranch(sessionId)
   )
+
+  // --- conductor (app-level AI chat over all sessions) ---
+  ipcMain.handle('conductor:list', () => conductor.list())
+  ipcMain.handle('conductor:send', (_e, text: string) => conductor.send(text))
+  ipcMain.handle('conductor:approve', (_e, messageId: string, actionId: string) =>
+    conductor.approve(messageId, actionId)
+  )
+  ipcMain.handle('conductor:approveAll', (_e, messageId: string) =>
+    conductor.approveAll(messageId)
+  )
+  ipcMain.handle('conductor:reject', (_e, messageId: string, actionId: string) =>
+    conductor.reject(messageId, actionId)
+  )
+  ipcMain.handle('conductor:clear', () => conductor.clear())
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)

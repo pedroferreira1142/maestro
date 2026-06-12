@@ -5,7 +5,9 @@ import { BackgroundDialog } from './components/BackgroundDialog'
 import { BroadcastDialog } from './components/BroadcastDialog'
 import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
+import { ConductorPane } from './components/ConductorPane'
 import { DiffViewer } from './components/DiffViewer'
+import { EnvVarsDialog } from './components/EnvVarsDialog'
 import { FeatureRail } from './components/FeatureRail'
 import { FeaturesDialog } from './components/FeaturesDialog'
 import { FileExplorer } from './components/FileExplorer'
@@ -37,6 +39,7 @@ export default function App(): JSX.Element {
   const pendingNewSession = useStore((s) => s.pendingNewSession)
   const pendingWorktree = useStore((s) => s.pendingWorktree)
   const categoriesOpen = useStore((s) => s.categoriesOpen)
+  const envEditorSessionId = useStore((s) => s.envEditorSessionId)
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
   const featuresSessionId = useStore((s) => s.featuresSessionId)
@@ -46,6 +49,7 @@ export default function App(): JSX.Element {
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const broadcastOpen = useStore((s) => s.broadcastOpen)
+  const view = useStore((s) => s.view)
   const notice = useStore((s) => s.notice)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
@@ -68,6 +72,7 @@ export default function App(): JSX.Element {
       window.api.onWorktreeAutoCompleted((id, result) =>
         useStore.getState().applyWorktreeAutoCompleted(id, result)
       ),
+      window.api.onConductorChanged((msgs) => useStore.getState().applyConductor(msgs)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)
@@ -147,9 +152,13 @@ export default function App(): JSX.Element {
         />
       )}
       <SessionSidebar />
-      {explorerVisible && active && <FileExplorer key={active.config.id} session={active} />}
+      {explorerVisible && active && view === 'session' && (
+        <FileExplorer key={active.config.id} session={active} />
+      )}
       <div className="main">
-        {sessions.length === 0 ? (
+        {view === 'conductor' ? (
+          <ConductorPane />
+        ) : sessions.length === 0 ? (
           <div className="welcome">
             <h1>Maestro</h1>
             <p>Run Claude Code on several repos at once — one window, zero lost context.</p>
@@ -199,6 +208,7 @@ export default function App(): JSX.Element {
       {pendingNewSession && <NewSessionDialog />}
       {pendingWorktree && <WorktreeTaskDialog />}
       {categoriesOpen && <CategoriesDialog />}
+      {envEditorSessionId && <EnvVarsDialog />}
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}
       {featuresSessionId && <FeaturesDialog />}

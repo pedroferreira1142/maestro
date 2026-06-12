@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from 'child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'fs'
+import { tmpdir } from 'os'
 import { basename, dirname, join, resolve } from 'path'
 import type {
   GitCommit,
@@ -8,6 +9,8 @@ import type {
   GitStatus,
   MergeResult,
   PullRequestResult,
+  RepoCheckpoint,
+  RestoreCheckpointResult,
   WorktreeInfo
 } from '../shared/types'
 
@@ -22,13 +25,20 @@ export interface GitResult {
 /**
  * Run a git command in `cwd`. Never rejects on a non-zero exit — callers
  * inspect `code`/`output`. Rejects only if git itself can't be spawned.
+ * `env` entries are merged over the inherited environment (used by the
+ * checkpoint helpers to redirect GIT_INDEX_FILE / set a commit identity).
  */
-function git(cwd: string, args: string[]): Promise<GitResult> {
+function git(cwd: string, args: string[], env?: Record<string, string>): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       args,
-      { cwd, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+      {
+        cwd,
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024,
+        ...(env ? { env: { ...process.env, ...env } } : {})
+      },
       (err, stdout, stderr) => {
         if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
           reject(new Error('git was not found on PATH'))
@@ -712,6 +722,158 @@ export async function deleteBranch(
   force: boolean
 ): Promise<void> {
   await git(repoRoot, ['branch', force ? '-D' : '-d', branch])
+}
+
+// ---------- repo checkpoints (working-tree safety net) ----------
+
+/** Ref namespace under which checkpoint snapshot commits are stored. */
+const CHECKPOINT_REF_PREFIX = 'refs/maestro-checkpoints/'
+
+/** Monotonic suffix so two checkpoints taken in the same millisecond get distinct ids. */
+let checkpointSeq = 0
+
+/** A checkpoint id is one we minted: `<unixMs>-<seq>`. Reject anything else. */
+function isValidCheckpointId(id: string): boolean {
+  return /^[0-9]+-[0-9]+$/.test(id)
+}
+
+/** Resolve a folder to its repo root (falls back to the folder itself). */
+async function repoRootOf(folder: string): Promise<string> {
+  const top = await git(folder, ['rev-parse', '--show-toplevel'])
+  return top.code === 0 && top.stdout.trim() ? top.stdout.trim() : folder
+}
+
+/**
+ * Snapshot the ENTIRE working tree (tracked changes + untracked files, minus
+ * .gitignored ones) into a commit stored under `refs/maestro-checkpoints/<id>`,
+ * WITHOUT moving HEAD or disturbing the user's index/working tree. Done with a
+ * throwaway index via GIT_INDEX_FILE so staged state is untouched, and a fixed
+ * "Maestro" identity so it works even when the user has no git identity set.
+ * Throws git's message on failure.
+ */
+export async function createCheckpoint(folder: string, label: string): Promise<RepoCheckpoint> {
+  const root = await repoRootOf(folder)
+  const createdAt = Date.now()
+  const id = `${createdAt}-${checkpointSeq++}`
+  const cleanLabel = label.trim() || 'Checkpoint'
+  const indexFile = join(tmpdir(), `maestro-ckpt-${id}.index`)
+  try {
+    // Build the snapshot tree in a throwaway index: `add -A` from an empty index
+    // stages every non-ignored file as it currently sits on disk (so modified,
+    // new, and deleted-tracked states are all captured faithfully).
+    const indexEnv = { GIT_INDEX_FILE: indexFile }
+    const add = await git(root, ['add', '-A'], indexEnv)
+    if (add.code !== 0) throw new Error(add.output || 'git add failed')
+    const writeTree = await git(root, ['write-tree'], indexEnv)
+    if (writeTree.code !== 0) throw new Error(writeTree.output || 'git write-tree failed')
+    const tree = writeTree.stdout.trim()
+
+    // Anchor the snapshot to HEAD when there is one, so `git log <ref>` reads
+    // naturally; on an unborn HEAD the snapshot commit simply has no parent.
+    const head = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+    const parentArgs = head.code === 0 && head.stdout.trim() ? ['-p', head.stdout.trim()] : []
+    const commit = await git(
+      root,
+      ['commit-tree', tree, ...parentArgs, '-m', cleanLabel],
+      {
+        GIT_AUTHOR_NAME: 'Maestro',
+        GIT_AUTHOR_EMAIL: 'maestro@localhost',
+        GIT_COMMITTER_NAME: 'Maestro',
+        GIT_COMMITTER_EMAIL: 'maestro@localhost'
+      }
+    )
+    if (commit.code !== 0) throw new Error(commit.output || 'git commit-tree failed')
+    const hash = commit.stdout.trim()
+
+    const ref = CHECKPOINT_REF_PREFIX + id
+    const update = await git(root, ['update-ref', ref, hash])
+    if (update.code !== 0) throw new Error(update.output || 'git update-ref failed')
+
+    return { id, ref, hash, label: cleanLabel, createdAt }
+  } finally {
+    try {
+      rmSync(indexFile, { force: true })
+    } catch {
+      // best-effort temp cleanup
+    }
+  }
+}
+
+/** Recent checkpoints for a repo, newest first. [] for a non-repo folder. */
+export async function listCheckpoints(folder: string): Promise<RepoCheckpoint[]> {
+  const root = await repoRootOf(folder)
+  const SEP = '\x1f'
+  const fmt = ['%(refname)', '%(objectname)', '%(creatordate:unix)', '%(contents:subject)'].join(SEP)
+  const res = await git(root, [
+    'for-each-ref',
+    '--sort=-creatordate',
+    `--format=${fmt}`,
+    CHECKPOINT_REF_PREFIX
+  ])
+  if (res.code !== 0) return []
+  const out: RepoCheckpoint[] = []
+  for (const line of res.stdout.split(/\r?\n/)) {
+    if (!line) continue
+    const [ref, hash, unix, subject] = line.split(SEP)
+    if (!ref || !hash) continue
+    out.push({
+      id: ref.slice(CHECKPOINT_REF_PREFIX.length),
+      ref,
+      hash,
+      label: subject ?? 'Checkpoint',
+      createdAt: (Number.parseInt(unix, 10) || 0) * 1000
+    })
+  }
+  return out
+}
+
+/**
+ * Restore the working tree back to a checkpoint. GUARDED: a fresh safety
+ * checkpoint of the current state is taken first (so a restore is itself
+ * reversible — nothing is lost), then `git read-tree -u --reset` resets the
+ * index and working tree to the snapshot, discarding conflicting local edits to
+ * tracked files. HEAD is never moved. Returns ok:false (without restoring) if
+ * the id is unknown or the safety snapshot can't be taken.
+ */
+export async function restoreCheckpoint(
+  folder: string,
+  id: string
+): Promise<RestoreCheckpointResult> {
+  if (!isValidCheckpointId(id)) {
+    return { ok: false, output: `Invalid checkpoint id: ${id}`, safety: null }
+  }
+  const root = await repoRootOf(folder)
+  const ref = CHECKPOINT_REF_PREFIX + id
+  const exists = await git(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+  if (exists.code !== 0 || !exists.stdout.trim()) {
+    return { ok: false, output: 'That checkpoint no longer exists.', safety: null }
+  }
+
+  // Save the current working tree first, so this restore can be undone.
+  let safety: RepoCheckpoint
+  try {
+    safety = await createCheckpoint(root, 'Auto-saved before restore')
+  } catch (err) {
+    return {
+      ok: false,
+      output: `Couldn't safeguard the current state before restoring:\n${(err as Error).message}`,
+      safety: null
+    }
+  }
+
+  const res = await git(root, ['read-tree', '-u', '--reset', exists.stdout.trim()])
+  if (res.code !== 0) {
+    return { ok: false, output: res.output || 'git read-tree failed', safety }
+  }
+  return { ok: true, output: res.output, safety }
+}
+
+/** Delete one checkpoint ref. Best-effort; throws git's message on failure. */
+export async function deleteCheckpoint(folder: string, id: string): Promise<void> {
+  if (!isValidCheckpointId(id)) throw new Error(`Invalid checkpoint id: ${id}`)
+  const root = await repoRootOf(folder)
+  const res = await git(root, ['update-ref', '-d', CHECKPOINT_REF_PREFIX + id])
+  if (res.code !== 0) throw new Error(res.output || 'git update-ref -d failed')
 }
 
 /**

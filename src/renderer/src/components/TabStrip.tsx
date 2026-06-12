@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, TerminalInfo, TerminalKind } from '../../../shared/types'
+import { type ClaudeModelAlias, getModelAlias } from '../../../shared/claudeArgs'
 import { diffTabPath, isDiffTab, useStore } from '../store'
 import { copyTranscript, exportTranscript } from '../transcript'
 import { STATUS_GLYPH, STATUS_LABEL } from './SessionSidebar'
@@ -90,6 +91,46 @@ function TabContextMenu({
   )
 }
 
+/** Model options offered on a claude tab; '' is Default (no --model flag). */
+const MODEL_OPTIONS: { value: '' | ClaudeModelAlias; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' }
+]
+
+/**
+ * Per-claude-tab model switcher. Shows the model currently encoded in the
+ * terminal's claudeArgs (Default when none/unknown); choosing one rewrites
+ * claudeArgs and resume-respawns claude on the new model.
+ */
+function ModelSelector({ terminal }: { terminal: TerminalInfo }): JSX.Element {
+  const setTerminalModel = useStore((s) => s.setTerminalModel)
+  const id = terminal.config.id
+  const current = getModelAlias(terminal.config.claudeArgs) ?? ''
+
+  return (
+    <select
+      className="tab-model"
+      title="Claude model for this terminal"
+      value={current}
+      // Don't let the click select/rename the tab beneath it.
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        const value = e.target.value as '' | ClaudeModelAlias
+        void setTerminalModel(id, value === '' ? null : value)
+      }}
+    >
+      {MODEL_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 function TerminalTab({
   sessionId,
   terminal,
@@ -154,6 +195,7 @@ function TerminalTab({
           {terminal.config.title}
         </span>
       )}
+      {terminal.config.kind === 'claude' && <ModelSelector terminal={terminal} />}
       {canClose && (
         <button
           className="btn ghost close"

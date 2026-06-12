@@ -30,6 +30,7 @@ const ATTENTION_RE =
  */
 export class StatusDetector {
   private status: SessionStatus = 'starting'
+  private statusSince = Date.now()
   private lastOutputAt = 0
   private stickyAttention = false
   private tail = ''
@@ -52,6 +53,11 @@ export class StatusDetector {
 
   get lastOutput(): number {
     return this.lastOutputAt
+  }
+
+  /** ms epoch when the current status was continuously entered (watchdog clock). */
+  get since(): number {
+    return this.statusSince
   }
 
   start(): void {
@@ -105,6 +111,7 @@ export class StatusDetector {
   private set(status: SessionStatus): void {
     if (this.status === status) return
     this.status = status
+    this.statusSince = Date.now()
     this.emit(status)
   }
 }

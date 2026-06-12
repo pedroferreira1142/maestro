@@ -1,6 +1,7 @@
 import type {
   AttachmentInfo,
   AutoExpandRun,
+  ConductorMessage,
   DirEntry,
   Feature,
   FileContent,
@@ -12,6 +13,8 @@ import type {
   MergeResult,
   PullRequestResult,
   RepoCategory,
+  RepoCheckpoint,
+  RestoreCheckpointResult,
   ReusableAction,
   RunActionResult,
   SentinelRun,
@@ -99,6 +102,16 @@ export interface Api {
   /** Unified diff of one file's working-tree state against HEAD (path is repo-root-relative). */
   gitFileDiff(sessionId: string, path: string): Promise<GitFileDiff>
 
+  // repo checkpoints (a working-tree safety net taken before a risky prompt)
+  /** Snapshot the working tree into a labeled checkpoint. Throws on git failure. */
+  createCheckpoint(sessionId: string, label: string): Promise<RepoCheckpoint>
+  /** Recent checkpoints for a session's repo, newest first. */
+  listCheckpoints(sessionId: string): Promise<RepoCheckpoint[]>
+  /** Restore the working tree back to a checkpoint (guarded; auto-saves current state first). */
+  restoreCheckpoint(sessionId: string, id: string): Promise<RestoreCheckpointResult>
+  /** Delete one checkpoint. */
+  deleteCheckpoint(sessionId: string, id: string): Promise<void>
+
   // terminals (within a session's folder)
   addTerminal(sessionId: string, kind: TerminalKind): Promise<TerminalInfo | null>
   closeTerminal(sessionId: string, terminalId: string): Promise<void>
@@ -127,6 +140,12 @@ export interface Api {
   saveCategories(categories: RepoCategory[]): Promise<void>
   /** Reassign a session's category; returns the claude terminal ids to restart. */
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<string[]>
+  /**
+   * Replace a session's per-session environment variables; returns the ids of
+   * its currently-running terminals (claude + shells) to restart so the new
+   * environment takes effect. Empty/whitespace-only keys are dropped.
+   */
+  setSessionEnv(sessionId: string, env: Record<string, string>): Promise<string[]>
   listClaudeSkills(): Promise<SkillInfo[]>
   /** User-scope MCP servers from ~/.claude.json, offered as one-click picks. */
   listUserMcpServers(): Promise<RepoCategory['mcpServers']>
@@ -159,6 +178,22 @@ export interface Api {
   ensureAutoExpandBranch(sessionId: string): Promise<void>
   /** Fired whenever a session's auto-expand run list changes (phase/status updates). */
   onAutoExpandRuns(cb: (sessionId: string, runs: AutoExpandRun[]) => void): Unsubscribe
+
+  // conductor (app-level AI chat over all sessions; propose→confirm)
+  /** The full Conductor conversation, oldest first. */
+  listConductor(): Promise<ConductorMessage[]>
+  /** Send a user message; the assistant turn is pushed via onConductorChanged. */
+  sendConductor(text: string): Promise<void>
+  /** Approve one proposed action on an assistant turn (runs it). */
+  approveConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Approve every non-destructive proposed action on an assistant turn. */
+  approveAllConductorActions(messageId: string): Promise<void>
+  /** Reject one proposed action without running it. */
+  rejectConductorAction(messageId: string, actionId: string): Promise<void>
+  /** Wipe the conversation. */
+  clearConductor(): Promise<void>
+  /** Fired whenever the conversation changes (new turn, action status). */
+  onConductorChanged(cb: (messages: ConductorMessage[]) => void): Unsubscribe
 
   // sentinels (background watcher agents; configs are saved via updateSession)
   /** Run history for a session's sentinels, newest first (in-memory, this app run only). */

@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import type { TerminalInfo } from '../../../shared/types'
+import { MAESTRO_PATH_MIME, type TerminalInfo } from '../../../shared/types'
 import { useStore } from '../store'
 import { registerTerm, unregisterTerm } from '../termRegistry'
 
@@ -59,7 +59,10 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
   const [showSearch, setShowSearch] = useState(false)
   const [query, setQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const [dragOver, setDragOver] = useState(false)
+  // Which kind of drag is currently hovering this terminal, driving the drop
+  // hint: 'path' = an explorer file row (inserts a path), 'image' = an OS file
+  // on a claude terminal (saved as an attachment). null = nothing dragging.
+  const [dragKind, setDragKind] = useState<'path' | 'image' | null>(null)
   const restartTerminal = useStore((s) => s.restartTerminal)
   const attachClipboardImage = useStore((s) => s.attachClipboardImage)
   const attachDroppedFile = useStore((s) => s.attachDroppedFile)
@@ -208,10 +211,19 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
   // Dropped image files become attachments; their paths are pasted for the CLI.
   const onDrop = (ev: React.DragEvent): void => {
     ev.preventDefault()
-    setDragOver(false)
-    if (!isClaude) return
+    setDragKind(null)
     const term = termRef.current
     if (!term) return
+    // An explorer file drag carries a session-relative path: paste it (quoted
+    // if it has whitespace) followed by a space, no Enter. Works for any
+    // terminal kind, and must not fall through to image-attachment handling.
+    const relPath = ev.dataTransfer.getData(MAESTRO_PATH_MIME)
+    if (relPath) {
+      term.paste(quotePath(relPath) + ' ')
+      term.focus()
+      return
+    }
+    if (!isClaude) return
     void (async () => {
       for (const file of Array.from(ev.dataTransfer.files)) {
         const info = await attachDroppedFile(sessionId, file)
@@ -231,17 +243,27 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
 
   return (
     <div
-      className={`term-wrap${dragOver && isClaude ? ' drag-over' : ''}`}
+      className={`term-wrap${dragKind ? ' drag-over' : ''}`}
       style={{ display: visible ? 'block' : 'none' }}
       onDragOver={(ev) => {
-        ev.preventDefault()
-        if (isClaude) setDragOver(true)
+        // An explorer path drag is accepted on any terminal; an OS file drag
+        // is only accepted (as an image attachment) on claude terminals.
+        if (ev.dataTransfer.types.includes(MAESTRO_PATH_MIME)) {
+          ev.preventDefault()
+          setDragKind('path')
+        } else if (isClaude) {
+          ev.preventDefault()
+          setDragKind('image')
+        }
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={() => setDragKind(null)}
       onDrop={onDrop}
     >
       <div className="term-container" ref={containerRef} onContextMenu={onContextMenu} />
-      {dragOver && isClaude && (
+      {dragKind === 'path' && (
+        <div className="term-drop-hint path">Drop to insert path</div>
+      )}
+      {dragKind === 'image' && (
         <div className="term-drop-hint">Drop image to attach</div>
       )}
       {showSearch && (

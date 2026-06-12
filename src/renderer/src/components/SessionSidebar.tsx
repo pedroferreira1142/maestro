@@ -1,5 +1,11 @@
 import { useRef, useState } from 'react'
-import type { SessionInfo, SessionStatus, WorktreeMeta } from '../../../shared/types'
+import type {
+  SessionInfo,
+  SessionStatus,
+  TerminalInfo,
+  WatchdogAlert,
+  WorktreeMeta
+} from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
 
@@ -22,6 +28,30 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   idle: 'Idle',
   exited: 'Exited',
   error: 'Error'
+}
+
+/** Glyph for each watchdog alert — distinct from the instantaneous status glyphs. */
+const WATCHDOG_GLYPH: Record<WatchdogAlert, string> = {
+  stalled: '⏱',
+  unanswered: '⚠'
+}
+
+/**
+ * Time-based watchdog badge for the session's first offending terminal. Hovering
+ * reveals how long that terminal has been continuously in the abnormal status.
+ */
+function WatchdogBadge({ terminal }: { terminal: TerminalInfo }): JSX.Element {
+  const alert = terminal.watchdog!
+  const mins = Math.max(1, Math.round((Date.now() - terminal.statusSince) / 60000))
+  const tip =
+    alert === 'stalled'
+      ? `Possibly stuck — working ${mins}m`
+      : `Unanswered — awaiting input ${mins}m`
+  return (
+    <span className={`watchdog-badge ${alert}`} title={tip}>
+      {WATCHDOG_GLYPH[alert]}
+    </span>
+  )
 }
 
 /** Max conflicted file paths listed in the badge tooltip before '+N more'. */
@@ -202,9 +232,11 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const newWorktreeTask = useStore((s) => s.newWorktreeTask)
   const completeWorktree = useStore((s) => s.completeWorktree)
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
+  const openEnvEditor = useStore((s) => s.openEnvEditor)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
   const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const queueBtnRef = useRef<HTMLButtonElement>(null)
 
   const id = session.config.id
@@ -212,6 +244,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const worktree = session.config.worktree ?? null
   const category = categories.find((c) => c.id === session.config.categoryId) ?? null
   const queueCount = session.config.promptQueue?.length ?? 0
+  const watchdogTerm = session.watchdog ? session.terminals.find((t) => t.watchdog) : undefined
 
   const commitRename = (): void => {
     setEditing(false)
@@ -231,6 +264,10 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       style={session.config.color ? { borderLeftColor: session.config.color } : undefined}
       title={`${session.config.folder}\n${STATUS_LABEL[session.status]} · Ctrl+${index + 1}`}
       onClick={() => setActive(id)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
       <span
         className={`glyph status-${session.status}`}
@@ -239,6 +276,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       >
         {STATUS_GLYPH[session.status]}
       </span>
+      {watchdogTerm && <WatchdogBadge terminal={watchdogTerm} />}
       <div className="session-meta">
         {editing ? (
           <input
@@ -322,6 +360,34 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       {queueAnchor && (
         <QueuePopover session={session} anchor={queueAnchor} onClose={() => setQueueAnchor(null)} />
       )}
+      {menu && (
+        <div
+          className="queue-overlay"
+          onClick={(e) => {
+            e.stopPropagation()
+            setMenu(null)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setMenu(null)
+          }}
+        >
+          <div
+            className="context-menu"
+            style={{ left: menu.x, top: menu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                setMenu(null)
+                openEnvEditor(id)
+              }}
+            >
+              Environment variables…
+            </button>
+          </div>
+        </div>
+      )}
       {!worktree && (
         <button
           className="btn ghost fork"
@@ -345,6 +411,31 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       >
         ✕
       </button>
+    </div>
+  )
+}
+
+/**
+ * The pinned, app-level "Maestro" row at the very top of the sidebar: selecting
+ * it shows the Conductor chat (an AI overview + orchestrator across every
+ * session/repo) in the main area instead of a session's terminals.
+ */
+function ConductorEntry(): JSX.Element {
+  const view = useStore((s) => s.view)
+  const openConductor = useStore((s) => s.openConductor)
+  const busy = useStore((s) => s.conductorMessages.some((m) => m.pending))
+  const active = view === 'conductor'
+  return (
+    <div
+      className={`session-entry conductor-entry${active ? ' active' : ''}`}
+      title="Maestro — AI overview & orchestrator across all your sessions"
+      onClick={openConductor}
+    >
+      <span className={`glyph${busy ? ' status-working' : ''}`}>{busy ? '⟳' : '✦'}</span>
+      <div className="session-meta">
+        <span className="session-name">Maestro</span>
+        <span className="session-folder">AI conductor · all sessions</span>
+      </div>
     </div>
   )
 }
@@ -404,6 +495,7 @@ export function SessionSidebar(): JSX.Element {
         </span>
       </div>
       <div className="sidebar-list">
+        <ConductorEntry />
         {ordered.map((s, i) => (
           <SessionEntry key={s.config.id} session={s} index={i} />
         ))}
