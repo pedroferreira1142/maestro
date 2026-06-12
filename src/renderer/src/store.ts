@@ -1004,11 +1004,19 @@ export const useStore = create<AppStore>()((set, get) => ({
     set((st) => {
       const sessions = st.sessions.map((s) => {
         if (!s.terminals.some((t) => t.config.id === terminalId)) return s
+        // A status transition resets the watchdog episode for that terminal:
+        // clear its badge now (the next main refresh re-derives any fresh one).
         const terminals = s.terminals.map((t) =>
-          t.config.id === terminalId ? { ...t, status, lastOutputAt: Date.now() } : t
+          t.config.id === terminalId
+            ? { ...t, status, lastOutputAt: Date.now(), statusSince: Date.now(), watchdog: null }
+            : t
         )
         const next = { ...s, terminals }
-        return { ...next, status: aggregate(next) }
+        return {
+          ...next,
+          status: aggregate(next),
+          watchdog: terminals.find((t) => t.watchdog)?.watchdog ?? null
+        }
       })
       // Keep the attention queue in sync with the transition: enqueue when a
       // terminal enters 'needs-attention', dequeue the moment it leaves.

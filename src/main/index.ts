@@ -91,6 +91,7 @@ if (!gotLock) {
 
     createWindow()
     sessions.restoreAll()
+    sessions.startWatchdog()
     sentinels.start()
     autoExpand.start()
 
