@@ -62,3 +62,34 @@ jobs:
             release/*.dmg
             release/*.zip
           if-no-files-found: error
+
+  # Publish the package to npm (claude-maestro) on tag pushes, so `npx
+  # claude-maestro` tracks each release. Skips cleanly if this version is
+  # already on the registry (re-runs, or a manual npm publish beat CI to it).
+  # Requires an NPM_TOKEN repo secret (npm "Automation" token).
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      # Runs `prepare` (electron-vite build) so out/ is built before packing.
+      - name: Install dependencies and build
+        run: npm ci
+
+      - name: Publish to npm (skip if this version is already published)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "claude-maestro@$VERSION" version >/dev/null 2>&1; then
+            echo "claude-maestro@$VERSION already published — skipping."
+          else
+            npm publish --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
