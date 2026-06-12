@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { AutoExpandService } from './AutoExpand'
 import { ConductorService } from './ConductorService'
+import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
 import { FsService } from './FsService'
 import { registerIpc } from './ipc'
@@ -89,7 +90,18 @@ if (!gotLock) {
     const features = new FeatureService(persistence, sessions)
     const autoExpand = new AutoExpandService(persistence, features, getWin)
     const conductor = new ConductorService(persistence, sessions, features, autoExpand, getWin)
-    registerIpc(sessions, fsService, persistence, sentinels, features, autoExpand, conductor, getWin)
+    const factory = new FactoryService(getWin)
+    registerIpc(
+      sessions,
+      fsService,
+      persistence,
+      sentinels,
+      features,
+      autoExpand,
+      conductor,
+      factory,
+      getWin
+    )
 
     createWindow()
     sessions.restoreAll()
@@ -104,6 +116,7 @@ if (!gotLock) {
     })
 
     app.on('before-quit', () => {
+      factory.dispose()
       conductor.dispose()
       autoExpand.dispose()
       sentinels.dispose()

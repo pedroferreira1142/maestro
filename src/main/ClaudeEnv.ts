@@ -10,7 +10,7 @@ const CLAUDE_HOME = join(homedir(), '.claude')
  * Deliberately tiny — handles inline scalars, quoted values, and `|`/`>`
  * block scalars, which is all SKILL.md frontmatter uses in practice.
  */
-function parseFrontmatter(md: string): { name?: string; description?: string } {
+export function parseFrontmatter(md: string): { name?: string; description?: string } {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---/.exec(md)
   if (!m) return {}
   const lines = m[1].split(/\r?\n/)

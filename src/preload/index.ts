@@ -3,6 +3,8 @@ import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
 import type {
   AutoExpandRun,
   ConductorMessage,
+  FactoryRun,
+  FactoryState,
   Feature,
   FsEvent,
   RepoCategory,
@@ -105,6 +107,24 @@ const api: Api = {
   clearConductor: () => ipcRenderer.invoke('conductor:clear'),
   onConductorChanged: (cb) =>
     subscribe('conductor:changed', (msgs) => cb(msgs as ConductorMessage[])),
+
+  listFactorySources: (refresh) => ipcRenderer.invoke('factory:listSources', refresh),
+  getFactoryState: () => ipcRenderer.invoke('factory:state'),
+  listFactoryRuns: () => ipcRenderer.invoke('factory:runs'),
+  scanFactory: (serverKey, guidance) => ipcRenderer.invoke('factory:scan', serverKey, guidance),
+  approveFactoryCandidate: (runId, candidateId) =>
+    ipcRenderer.invoke('factory:approve', runId, candidateId),
+  approveAllFactoryCandidates: (runId) => ipcRenderer.invoke('factory:approveAll', runId),
+  rejectFactoryCandidate: (runId, candidateId) =>
+    ipcRenderer.invoke('factory:reject', runId, candidateId),
+  deleteFactoryArtifact: (id) => ipcRenderer.invoke('factory:deleteArtifact', id),
+  promoteFactoryTopic: (id) => ipcRenderer.invoke('factory:promoteTopic', id),
+  dismissFactoryTopic: (id) => ipcRenderer.invoke('factory:dismissTopic', id),
+  addFactoryLesson: (text) => ipcRenderer.invoke('factory:addLesson', text),
+  deleteFactoryLesson: (id) => ipcRenderer.invoke('factory:deleteLesson', id),
+  onFactoryChanged: (cb) =>
+    subscribe('factory:changed', (state) => cb(state as FactoryState)),
+  onFactoryRuns: (cb) => subscribe('factory:runs', (runs) => cb(runs as FactoryRun[])),
 
   listFeatures: (sessionId) => ipcRenderer.invoke('feature:list', sessionId),
   featureForTask: (sessionId) => ipcRenderer.invoke('feature:forTask', sessionId),

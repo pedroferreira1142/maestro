@@ -25,6 +25,7 @@ import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { ConductorService } from './ConductorService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
+import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
 import { Persistence } from './Persistence'
@@ -50,6 +51,7 @@ export function registerIpc(
   features: FeatureService,
   autoExpand: AutoExpandService,
   conductor: ConductorService,
+  factory: FactoryService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -198,6 +200,26 @@ export function registerIpc(
     conductor.reject(messageId, actionId)
   )
   ipcMain.handle('conductor:clear', () => conductor.clear())
+
+  // --- agent & skill factory (generate skills/agents from MCP sources) ---
+  ipcMain.handle('factory:listSources', (_e, refresh?: boolean) => factory.listSources(refresh))
+  ipcMain.handle('factory:state', () => factory.getState())
+  ipcMain.handle('factory:runs', () => factory.listRuns())
+  ipcMain.handle('factory:scan', (_e, serverKey: string, guidance: string) =>
+    factory.scan(serverKey, guidance)
+  )
+  ipcMain.handle('factory:approve', (_e, runId: string, candidateId: string) =>
+    factory.approve(runId, candidateId)
+  )
+  ipcMain.handle('factory:approveAll', (_e, runId: string) => factory.approveAll(runId))
+  ipcMain.handle('factory:reject', (_e, runId: string, candidateId: string) =>
+    factory.reject(runId, candidateId)
+  )
+  ipcMain.handle('factory:deleteArtifact', (_e, id: string) => factory.deleteArtifact(id))
+  ipcMain.handle('factory:promoteTopic', (_e, id: string) => factory.promoteTopic(id))
+  ipcMain.handle('factory:dismissTopic', (_e, id: string) => factory.dismissTopic(id))
+  ipcMain.handle('factory:addLesson', (_e, text: string) => factory.addLesson(text))
+  ipcMain.handle('factory:deleteLesson', (_e, id: string) => factory.deleteLesson(id))
 
   // --- reusable actions (saved shell commands) ---
   ipcMain.handle('actions:list', () => sessions.actions)

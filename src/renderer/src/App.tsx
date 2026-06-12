@@ -3,9 +3,9 @@ import { ActionDialog } from './components/ActionDialog'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { BroadcastDialog } from './components/BroadcastDialog'
-import { CategoriesDialog } from './components/CategoriesDialog'
 import { CommandPalette } from './components/CommandPalette'
 import { ConductorPane } from './components/ConductorPane'
+import { FactoryPane } from './components/FactoryPane'
 import { DiffViewer } from './components/DiffViewer'
 import { EnvVarsDialog } from './components/EnvVarsDialog'
 import { FeatureRail } from './components/FeatureRail'
@@ -15,6 +15,7 @@ import { GlobalSearchDialog } from './components/GlobalSearchDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { SentinelDialog } from './components/SentinelDialog'
+import { SettingsDialog } from './components/SettingsDialog'
 import { WorktreeTaskDialog } from './components/WorktreeTaskDialog'
 import { SessionSidebar } from './components/SessionSidebar'
 import { StatusBar } from './components/StatusBar'
@@ -38,7 +39,7 @@ export default function App(): JSX.Element {
   const settings = useStore((s) => s.settings)
   const pendingNewSession = useStore((s) => s.pendingNewSession)
   const pendingWorktree = useStore((s) => s.pendingWorktree)
-  const categoriesOpen = useStore((s) => s.categoriesOpen)
+  const settingsOpen = useStore((s) => s.settingsOpen)
   const envEditorSessionId = useStore((s) => s.envEditorSessionId)
   const actionEditor = useStore((s) => s.actionEditor)
   const sentinelEditor = useStore((s) => s.sentinelEditor)
@@ -73,6 +74,8 @@ export default function App(): JSX.Element {
         useStore.getState().applyWorktreeAutoCompleted(id, result)
       ),
       window.api.onConductorChanged((msgs) => useStore.getState().applyConductor(msgs)),
+      window.api.onFactoryChanged((state) => useStore.getState().applyFactoryState(state)),
+      window.api.onFactoryRuns((runs) => useStore.getState().applyFactoryRuns(runs)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()
         st.setActive(id)
@@ -158,6 +161,8 @@ export default function App(): JSX.Element {
       <div className="main">
         {view === 'conductor' ? (
           <ConductorPane />
+        ) : view === 'factory' ? (
+          <FactoryPane />
         ) : sessions.length === 0 ? (
           <div className="welcome">
             <h1>Maestro</h1>
@@ -207,7 +212,7 @@ export default function App(): JSX.Element {
       <FeatureRail />
       {pendingNewSession && <NewSessionDialog />}
       {pendingWorktree && <WorktreeTaskDialog />}
-      {categoriesOpen && <CategoriesDialog />}
+      {settingsOpen && <SettingsDialog />}
       {envEditorSessionId && <EnvVarsDialog />}
       {actionEditor && <ActionDialog />}
       {sentinelEditor && <SentinelDialog />}

@@ -425,6 +425,35 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
 }
 
 /**
+ * Pinned, app-level "Factory" row: selecting it shows the Agent & Skill Factory
+ * in the main area — generate reusable Claude skills/sub-agents from connected
+ * MCP sources.
+ */
+function FactoryEntry(): JSX.Element {
+  const view = useStore((s) => s.view)
+  const openFactory = useStore((s) => s.openFactory)
+  const busy = useStore((s) =>
+    s.factoryRuns.some(
+      (r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')
+    )
+  )
+  const active = view === 'factory'
+  return (
+    <div
+      className={`session-entry conductor-entry${active ? ' active' : ''}`}
+      title="Agent & Skill Factory — generate skills/agents from connected MCP sources"
+      onClick={openFactory}
+    >
+      <span className={`glyph${busy ? ' status-working' : ''}`}>{busy ? '⟳' : '⚒'}</span>
+      <div className="session-meta">
+        <span className="session-name">Factory</span>
+        <span className="session-folder">Agents &amp; skills · from MCP</span>
+      </div>
+    </div>
+  )
+}
+
+/**
  * The pinned, app-level "Maestro" row at the very top of the sidebar: selecting
  * it shows the Conductor chat (an AI overview + orchestrator across every
  * session/repo) in the main area instead of a session's terminals.
@@ -453,7 +482,7 @@ export function SessionSidebar(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
   const activeId = useStore((s) => s.activeId)
   const newSession = useStore((s) => s.newSession)
-  const openCategories = useStore((s) => s.openCategories)
+  const openSettings = useStore((s) => s.openSettings)
   const openFeatures = useStore((s) => s.openFeatures)
   const openAutoExpand = useStore((s) => s.openAutoExpand)
   const openBackgroundDialog = useStore((s) => s.openBackgroundDialog)
@@ -491,7 +520,7 @@ export function SessionSidebar(): JSX.Element {
           <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
             ◫
           </button>
-          <button className="btn ghost" title="Manage repo categories" onClick={openCategories}>
+          <button className="btn ghost" title="Settings" onClick={openSettings}>
             ⚙
           </button>
           <button
@@ -505,6 +534,7 @@ export function SessionSidebar(): JSX.Element {
       </div>
       <div className="sidebar-list">
         <ConductorEntry />
+        <FactoryEntry />
         {ordered.map((s, i) => (
           <SessionEntry key={s.config.id} session={s} index={i} />
         ))}
