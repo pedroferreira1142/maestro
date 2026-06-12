@@ -3,6 +3,8 @@ import type {
   AutoExpandRun,
   ConductorMessage,
   DirEntry,
+  FactoryArtifactKind,
+  FactoryAudit,
   FactoryRun,
   FactorySource,
   FactoryState,
@@ -207,8 +209,12 @@ export interface Api {
   listFactorySources(refresh?: boolean): Promise<FactorySource[]>
   /** The persisted factory registry (generated artifacts + backlog + lessons). */
   getFactoryState(): Promise<FactoryState>
-  /** Scan runs, newest first (in-memory, this app run only). */
+  /** Scan runs, newest first (the persisted audit trail). */
   listFactoryRuns(): Promise<FactoryRun[]>
+  /** Cancel the in-flight scan/author agent, if any (the run reports 'cancelled'). */
+  cancelFactoryRun(): Promise<void>
+  /** Drop finished runs from the audit trail (a running one is kept). */
+  clearFactoryRuns(): Promise<void>
   /** Explore a source and propose skill/agent candidates (pushed via onFactoryRuns). */
   scanFactory(serverKey: string, guidance: string): Promise<void>
   /** Approve a candidate: author its file and write it to ~/.claude. */
@@ -217,8 +223,18 @@ export interface Api {
   approveAllFactoryCandidates(runId: string): Promise<void>
   /** Reject one proposed candidate without authoring it. */
   rejectFactoryCandidate(runId: string, candidateId: string): Promise<void>
-  /** Delete a generated artifact (removes its file too). */
+  /** Delete a generated artifact (removes its file too; an adopted artifact's file is kept). */
   deleteFactoryArtifact(id: string): Promise<void>
+  /** Remove an artifact from the registry WITHOUT deleting its file. */
+  unregisterFactoryArtifact(id: string): Promise<void>
+  /** Read a registered artifact's file content (null when the file is missing). */
+  readFactoryArtifact(id: string): Promise<string | null>
+  /** Reveal a registered artifact's file in the OS file manager. */
+  revealFactoryArtifact(id: string): Promise<void>
+  /** Reconcile the registry against ~/.claude on disk (missing files + unregistered artifacts). */
+  auditFactory(): Promise<FactoryAudit>
+  /** Adopt a pre-existing on-disk skill/agent into the registry (file is left as-is). */
+  adoptFactoryArtifact(kind: FactoryArtifactKind, name: string): Promise<void>
   /** Promote a backlog topic into a fresh scan seeded by it. */
   promoteFactoryTopic(id: string): Promise<void>
   /** Dismiss a backlog topic. */

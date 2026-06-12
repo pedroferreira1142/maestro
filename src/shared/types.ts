@@ -1003,12 +1003,34 @@ export interface FactoryArtifact {
   description: string
   topics: string[]
   keywords: string[]
-  /** MCP server key it was grounded on. */
+  /** MCP server key it was grounded on ('adopted' for adopted pre-existing artifacts). */
   source: string
   /** Names of related artifacts (the connection map; stored bidirectionally). */
   relatedArtifacts: string[]
+  /** True for a pre-existing on-disk artifact adopted into the registry (its file is never deleted). */
+  adopted?: boolean
   createdAt: number
   updatedAt: number
+}
+
+/** One installed-but-unregistered artifact found under ~/.claude (adoptable). */
+export interface FactoryUnregistered {
+  kind: FactoryArtifactKind
+  name: string
+  description: string
+  filePath: string
+}
+
+/**
+ * Registry↔disk reconciliation snapshot (the lightweight validator): which
+ * registry entries lost their file, and which on-disk artifacts the registry
+ * doesn't know about yet.
+ */
+export interface FactoryAudit {
+  /** Ids of registry artifacts whose file no longer exists on disk. */
+  missingFileIds: string[]
+  /** Artifacts on disk under ~/.claude that aren't tracked by the registry. */
+  unregistered: FactoryUnregistered[]
 }
 
 /**
@@ -1036,9 +1058,9 @@ export interface FactoryLesson {
 /** Pipeline progress of a scan run, shown live in the pane. */
 export type FactoryRunPhase = 'discovering' | 'proposing' | 'done'
 
-export type FactoryRunStatus = 'running' | 'done' | 'error'
+export type FactoryRunStatus = 'running' | 'done' | 'error' | 'cancelled'
 
-/** One scan execution: explores a source and proposes candidates. Held in memory. */
+/** One scan execution: explores a source and proposes candidates. Persisted as the audit trail. */
 export interface FactoryRun {
   id: string
   /** Source server key the scan targeted. */

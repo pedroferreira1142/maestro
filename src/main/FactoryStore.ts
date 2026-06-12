@@ -1,20 +1,27 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
-import { FactoryArtifact, FactoryLesson, FactoryState, FactoryTopic } from '../shared/types'
+import {
+  FactoryArtifact,
+  FactoryLesson,
+  FactoryRun,
+  FactoryState,
+  FactoryTopic
+} from '../shared/types'
 
 const EMPTY: FactoryState = { artifacts: [], topics: [], lessons: [] }
 
 /**
  * Persists the factory registry (generated artifacts + the topics-to-pursue
- * backlog + lessons-learned) to its OWN file (userData/factory.json), separate
- * from sessions.json. Writes are atomic (temp + rename) and debounced; mirrors
- * ConductorStore.
+ * backlog + lessons-learned) AND the scan-run audit trail to its OWN file
+ * (userData/factory.json), separate from sessions.json. Writes are atomic
+ * (temp + rename) and debounced; mirrors ConductorStore.
  */
 export class FactoryStore {
   private file = join(app.getPath('userData'), 'factory.json')
   private timer: NodeJS.Timeout | null = null
   private state: FactoryState = { ...EMPTY }
+  private runs: FactoryRun[] = []
 
   /** Load the saved registry (best-effort; an empty registry on any error). */
   load(): FactoryState {
@@ -25,8 +32,10 @@ export class FactoryStore {
         topics: Array.isArray(raw?.topics) ? (raw.topics as FactoryTopic[]) : [],
         lessons: Array.isArray(raw?.lessons) ? (raw.lessons as FactoryLesson[]) : []
       }
+      this.runs = Array.isArray(raw?.runs) ? (raw.runs as FactoryRun[]) : []
     } catch {
       this.state = { ...EMPTY }
+      this.runs = []
     }
     return this.state
   }
@@ -35,9 +44,20 @@ export class FactoryStore {
     return this.state
   }
 
+  /** The persisted run audit trail (call after load()). */
+  loadRuns(): FactoryRun[] {
+    return this.runs
+  }
+
   /** Replace the registry and schedule a save. */
   set(state: FactoryState): void {
     this.state = state
+    this.scheduleSave()
+  }
+
+  /** Replace the run audit trail and schedule a save. */
+  setRuns(runs: FactoryRun[]): void {
+    this.runs = runs
     this.scheduleSave()
   }
 
@@ -54,7 +74,7 @@ export class FactoryStore {
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const tmp = this.file + '.tmp'
-      writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8')
+      writeFileSync(tmp, JSON.stringify({ ...this.state, runs: this.runs }, null, 2), 'utf8')
       renameSync(tmp, this.file)
     } catch (err) {
       console.error('Failed to persist factory registry:', err)

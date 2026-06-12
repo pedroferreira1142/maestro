@@ -4,6 +4,7 @@ import { writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { CreateWorktreeOpts } from '../shared/api'
 import {
+  FactoryArtifactKind,
   Feature,
   RepoCategory,
   ReusableAction,
@@ -215,7 +216,16 @@ export function registerIpc(
   ipcMain.handle('factory:reject', (_e, runId: string, candidateId: string) =>
     factory.reject(runId, candidateId)
   )
+  ipcMain.handle('factory:cancel', () => factory.cancel())
+  ipcMain.handle('factory:clearRuns', () => factory.clearRuns())
   ipcMain.handle('factory:deleteArtifact', (_e, id: string) => factory.deleteArtifact(id))
+  ipcMain.handle('factory:unregisterArtifact', (_e, id: string) => factory.unregister(id))
+  ipcMain.handle('factory:readArtifact', (_e, id: string) => factory.readArtifact(id))
+  ipcMain.handle('factory:revealArtifact', (_e, id: string) => factory.revealArtifact(id))
+  ipcMain.handle('factory:audit', () => factory.audit())
+  ipcMain.handle('factory:adopt', (_e, kind: FactoryArtifactKind, name: string) =>
+    factory.adopt(kind, name)
+  )
   ipcMain.handle('factory:promoteTopic', (_e, id: string) => factory.promoteTopic(id))
   ipcMain.handle('factory:dismissTopic', (_e, id: string) => factory.dismissTopic(id))
   ipcMain.handle('factory:addLesson', (_e, text: string) => factory.addLesson(text))

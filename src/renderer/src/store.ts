@@ -4,6 +4,8 @@ import type {
   AutoExpandConfig,
   AutoExpandRun,
   ConductorMessage,
+  FactoryArtifactKind,
+  FactoryAudit,
   FactoryRun,
   FactorySource,
   FactoryState,
@@ -226,6 +228,8 @@ interface AppStore {
   factoryState: FactoryState
   /** Scan runs, newest first (pushed from main). */
   factoryRuns: FactoryRun[]
+  /** Registry↔disk reconciliation snapshot (missing files + unregistered artifacts on disk). */
+  factoryAudit: FactoryAudit | null
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
   notice: string | null
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
@@ -408,8 +412,18 @@ interface AppStore {
   approveAllFactoryCandidates(runId: string): Promise<void>
   /** Reject one proposed candidate. */
   rejectFactoryCandidate(runId: string, candidateId: string): Promise<void>
-  /** Delete a generated artifact (removes its file). */
+  /** Cancel the in-flight scan/author agent. */
+  cancelFactoryRun(): Promise<void>
+  /** Drop finished runs from the audit trail. */
+  clearFactoryRuns(): Promise<void>
+  /** Delete a generated artifact (removes its file; an adopted artifact's file is kept). */
   deleteFactoryArtifact(id: string): Promise<void>
+  /** Remove an artifact from the registry without deleting its file. */
+  unregisterFactoryArtifact(id: string): Promise<void>
+  /** Refresh the registry↔disk audit snapshot. */
+  loadFactoryAudit(): Promise<void>
+  /** Adopt a pre-existing on-disk skill/agent into the registry. */
+  adoptFactoryArtifact(kind: FactoryArtifactKind, name: string): Promise<void>
   /** Build a backlog topic (promotes it into a scan). */
   promoteFactoryTopic(id: string): Promise<void>
   /** Dismiss a backlog topic. */
@@ -471,6 +485,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   factorySourcesLoading: false,
   factoryState: { artifacts: [], topics: [], lessons: [] },
   factoryRuns: [],
+  factoryAudit: null,
   notice: null,
   worktreeStates: {},
   worktreeChecking: {},
@@ -1477,6 +1492,7 @@ export const useStore = create<AppStore>()((set, get) => ({
       window.api.listFactoryRuns()
     ])
     set({ factoryState, factoryRuns })
+    void get().loadFactoryAudit()
   },
 
   async loadFactorySources(refresh = false) {
@@ -1493,6 +1509,8 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   applyFactoryState(state) {
     set({ factoryState: state })
+    // The registry changed → the disk audit may be stale; refresh it quietly.
+    void get().loadFactoryAudit()
   },
 
   applyFactoryRuns(runs) {
@@ -1516,12 +1534,49 @@ export const useStore = create<AppStore>()((set, get) => ({
     await window.api.rejectFactoryCandidate(runId, candidateId)
   },
 
+  async cancelFactoryRun() {
+    await window.api.cancelFactoryRun()
+  },
+
+  async clearFactoryRuns() {
+    await window.api.clearFactoryRuns()
+  },
+
   async deleteFactoryArtifact(id) {
     const artifact = get().factoryState.artifacts.find((a) => a.id === id)
-    if (artifact && !window.confirm(`Delete the ${artifact.kind} "${artifact.name}" and its file?`)) {
-      return
+    if (artifact) {
+      const what = artifact.adopted
+        ? `Remove the adopted ${artifact.kind} "${artifact.name}" from the registry?\n\nIts file is kept on disk.`
+        : `Delete the ${artifact.kind} "${artifact.name}" and its file?`
+      if (!window.confirm(what)) return
     }
     await window.api.deleteFactoryArtifact(id)
+  },
+
+  async unregisterFactoryArtifact(id) {
+    const artifact = get().factoryState.artifacts.find((a) => a.id === id)
+    if (
+      artifact &&
+      !window.confirm(
+        `Remove the ${artifact.kind} "${artifact.name}" from the registry?\n\nIts file is kept on disk.`
+      )
+    ) {
+      return
+    }
+    await window.api.unregisterFactoryArtifact(id)
+  },
+
+  async loadFactoryAudit() {
+    try {
+      const factoryAudit = await window.api.auditFactory()
+      set({ factoryAudit })
+    } catch {
+      // best-effort — keep the previous snapshot
+    }
+  },
+
+  async adoptFactoryArtifact(kind, name) {
+    await window.api.adoptFactoryArtifact(kind, name)
   },
 
   async promoteFactoryTopic(id) {

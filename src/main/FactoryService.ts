@@ -1,8 +1,11 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
+import { existsSync, readFileSync } from 'fs'
 import {
   FactoryArtifact,
+  FactoryArtifactKind,
+  FactoryAudit,
   FactoryCandidate,
   FactoryLesson,
   FactoryRun,
@@ -10,7 +13,14 @@ import {
   FactoryState
 } from '../shared/types'
 import { readUserMcpServers, scanSkills } from './ClaudeEnv'
-import { deleteArtifactFile, scanAgents, slugify, writeAgent, writeSkill } from './FactoryWriter'
+import {
+  deleteArtifactFile,
+  listInstalled,
+  scanAgents,
+  slugify,
+  writeAgent,
+  writeSkill
+} from './FactoryWriter'
 import { FactoryStore } from './FactoryStore'
 import { extractJson, runHeadlessClaude } from './HeadlessClaude'
 
@@ -51,12 +61,15 @@ export class FactoryService {
   private state: FactoryState
   private runs: FactoryRun[] = []
   private sources: FactorySource[] | null = null
-  /** The in-flight agent child, so dispose()/a new run can cancel it. */
+  /** The in-flight agent child, so dispose()/cancel() can kill it. */
   private inFlight: ChildProcess | null = null
   private busy = false
+  /** Set by cancel(); the in-flight scan/author reports 'cancelled' instead of 'error'. */
+  private cancelRequested = false
 
   constructor(private getWin: () => BrowserWindow | null) {
     this.state = this.store.load()
+    this.runs = restoreRuns(this.store.loadRuns())
   }
 
   getState(): FactoryState {
@@ -75,6 +88,23 @@ export class FactoryService {
     }
     this.inFlight = null
     this.store.saveNow()
+  }
+
+  /** Cancel the in-flight scan/author agent, if any (the run reports 'cancelled'). */
+  cancel(): void {
+    if (!this.inFlight) return
+    this.cancelRequested = true
+    try {
+      this.inFlight.kill()
+    } catch {
+      // already gone
+    }
+  }
+
+  /** Drop finished runs from the audit trail (a running one is kept). */
+  clearRuns(): void {
+    this.runs = this.runs.filter((r) => r.status === 'running')
+    this.broadcastRuns()
   }
 
   // ---------- source discovery (phase 0) ----------
@@ -164,6 +194,7 @@ export class FactoryService {
     const source = sources.find((s) => s.server === serverKey)
     if (!source) throw new Error(`Unknown source: ${serverKey}`)
     this.busy = true
+    this.cancelRequested = false
 
     const run: FactoryRun = {
       id: randomUUID(),
@@ -197,9 +228,9 @@ export class FactoryService {
       run.status = 'done'
       this.absorbTopics(parsed.newTopics, source.server)
     } catch (err) {
-      run.status = 'error'
+      run.status = this.cancelRequested ? 'cancelled' : 'error'
       run.phase = 'done'
-      run.summary = (err as Error).message || String(err)
+      run.summary = this.cancelRequested ? 'Cancelled.' : (err as Error).message || String(err)
     } finally {
       run.finishedAt = Date.now()
       this.inFlight = null
@@ -307,13 +338,14 @@ export class FactoryService {
 
   // ---------- author (phase 2) ----------
 
-  /** Approve a candidate: author its file content and write it to ~/.claude. */
+  /** Approve a candidate: author its file content and write it to ~/.claude. An errored candidate can be retried. */
   async approve(runId: string, candidateId: string): Promise<void> {
     const run = this.runs.find((r) => r.id === runId)
     const candidate = run?.candidates.find((c) => c.id === candidateId)
-    if (!run || !candidate || candidate.status !== 'proposed') return
+    if (!run || !candidate || (candidate.status !== 'proposed' && candidate.status !== 'error')) return
     if (this.busy) return
     this.busy = true
+    this.cancelRequested = false
     candidate.status = 'authoring'
     candidate.result = undefined
     this.broadcastRuns()
@@ -352,8 +384,14 @@ export class FactoryService {
       candidate.filePath = filePath
       candidate.result = `Wrote ${candidate.kind} to ${filePath}`
     } catch (err) {
-      candidate.status = 'error'
-      candidate.result = (err as Error).message || String(err)
+      if (this.cancelRequested) {
+        // Put the candidate back so the user can approve it again later.
+        candidate.status = 'proposed'
+        candidate.result = undefined
+      } else {
+        candidate.status = 'error'
+        candidate.result = (err as Error).message || String(err)
+      }
     } finally {
       this.inFlight = null
       this.busy = false
@@ -362,12 +400,13 @@ export class FactoryService {
     }
   }
 
-  /** Approve every still-proposed candidate on a run, in order. */
+  /** Approve every still-proposed candidate on a run, in order (stops on cancel). */
   async approveAll(runId: string): Promise<void> {
     const run = this.runs.find((r) => r.id === runId)
     if (!run) return
     for (const c of run.candidates) {
       if (c.status === 'proposed') await this.approve(runId, c.id)
+      if (this.cancelRequested) break
     }
   }
 
@@ -511,12 +550,70 @@ export class FactoryService {
   deleteArtifact(id: string): void {
     const artifact = this.state.artifacts.find((a) => a.id === id)
     if (!artifact) return
-    deleteArtifactFile(artifact.kind, artifact.name)
+    // Adopted artifacts pre-date the factory — never delete their file, only unregister.
+    if (!artifact.adopted) deleteArtifactFile(artifact.kind, artifact.name)
+    this.unregister(id)
+  }
+
+  /** Remove an artifact from the registry WITHOUT touching its file. */
+  unregister(id: string): void {
+    const artifact = this.state.artifacts.find((a) => a.id === id)
+    if (!artifact) return
     this.state.artifacts = this.state.artifacts.filter((a) => a.id !== id)
     // Prune dangling edges.
     for (const a of this.state.artifacts) {
       a.relatedArtifacts = a.relatedArtifacts.filter((n) => n !== artifact.name)
     }
+    this.persist()
+  }
+
+  /** Read a registered artifact's file content (null when the file is missing). */
+  readArtifact(id: string): string | null {
+    const artifact = this.state.artifacts.find((a) => a.id === id)
+    if (!artifact) return null
+    try {
+      return readFileSync(artifact.filePath, 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+  /** Reveal a registered artifact's file in the OS file manager. */
+  revealArtifact(id: string): void {
+    const artifact = this.state.artifacts.find((a) => a.id === id)
+    if (artifact && existsSync(artifact.filePath)) shell.showItemInFolder(artifact.filePath)
+  }
+
+  // ---------- registry↔disk audit (the lightweight validator) ----------
+
+  /** Reconcile the registry against ~/.claude on disk. */
+  audit(): FactoryAudit {
+    const missingFileIds = this.state.artifacts.filter((a) => !existsSync(a.filePath)).map((a) => a.id)
+    const registered = new Set(this.state.artifacts.map((a) => `${a.kind}:${a.name}`))
+    const unregistered = listInstalled().filter((i) => !registered.has(`${i.kind}:${i.name}`))
+    return { missingFileIds, unregistered }
+  }
+
+  /** Adopt a pre-existing on-disk skill/agent into the registry (file is left as-is). */
+  adopt(kind: FactoryArtifactKind, name: string): void {
+    if (this.state.artifacts.some((a) => a.kind === kind && a.name === name)) return
+    const installed = listInstalled().find((i) => i.kind === kind && i.name === name)
+    if (!installed) return
+    const now = Date.now()
+    this.state.artifacts.push({
+      id: randomUUID(),
+      kind,
+      name,
+      filePath: installed.filePath,
+      description: installed.description,
+      topics: [],
+      keywords: [],
+      source: 'adopted',
+      relatedArtifacts: [],
+      adopted: true,
+      createdAt: now,
+      updatedAt: now
+    })
     this.persist()
   }
 
@@ -594,8 +691,32 @@ export class FactoryService {
   }
 
   private broadcastRuns(): void {
+    this.store.setRuns(this.runs)
     this.getWin()?.webContents.send('factory:runs', this.runs)
   }
+}
+
+/**
+ * Sanitize runs restored from disk: anything that was mid-flight when the app
+ * closed is settled — the run is marked cancelled, an authoring candidate goes
+ * back to 'proposed' so it can simply be approved again.
+ */
+function restoreRuns(runs: FactoryRun[]): FactoryRun[] {
+  for (const run of runs) {
+    if (run.status === 'running') {
+      run.status = 'cancelled'
+      run.phase = 'done'
+      run.finishedAt = run.finishedAt ?? Date.now()
+      run.summary = run.summary || 'Interrupted — the app was closed mid-scan.'
+    }
+    for (const c of run.candidates) {
+      if (c.status === 'authoring') {
+        c.status = 'proposed'
+        c.result = undefined
+      }
+    }
+  }
+  return runs
 }
 
 /** Coerce an unknown into a clean, de-duped string array. */

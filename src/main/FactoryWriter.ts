@@ -9,7 +9,7 @@ import {
 } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
-import { FactoryArtifactKind, SkillInfo } from '../shared/types'
+import { FactoryArtifactKind, FactoryUnregistered, SkillInfo } from '../shared/types'
 import { parseFrontmatter } from './ClaudeEnv'
 
 const CLAUDE_HOME = join(homedir(), '.claude')
@@ -70,6 +70,55 @@ export function deleteArtifactFile(kind: FactoryArtifactKind, name: string): voi
   } catch {
     // already gone / locked — nothing more we can do here
   }
+}
+
+/**
+ * Every skill/agent physically installed under ~/.claude (user scope), with its
+ * file path — the disk side of the registry↔disk audit. Adopted/adoptable
+ * artifacts come from here.
+ */
+export function listInstalled(): FactoryUnregistered[] {
+  const out: FactoryUnregistered[] = []
+  // Skills: every ~/.claude/skills/<dir>/SKILL.md
+  if (existsSync(SKILLS_DIR)) {
+    let dirs: string[] = []
+    try {
+      dirs = readdirSync(SKILLS_DIR)
+    } catch {
+      dirs = []
+    }
+    for (const dir of dirs) {
+      const file = join(SKILLS_DIR, dir, 'SKILL.md')
+      if (!existsSync(file)) continue
+      try {
+        const fm = parseFrontmatter(readFileSync(file, 'utf8'))
+        out.push({ kind: 'skill', name: fm.name?.trim() || dir, description: fm.description ?? '', filePath: file })
+      } catch {
+        out.push({ kind: 'skill', name: dir, description: '', filePath: file })
+      }
+    }
+  }
+  // Agents: every ~/.claude/agents/*.md
+  if (existsSync(AGENTS_DIR)) {
+    let entries: string[] = []
+    try {
+      entries = readdirSync(AGENTS_DIR)
+    } catch {
+      entries = []
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.md')) continue
+      const file = join(AGENTS_DIR, entry)
+      const base = entry.replace(/\.md$/, '')
+      try {
+        const fm = parseFrontmatter(readFileSync(file, 'utf8'))
+        out.push({ kind: 'agent', name: fm.name?.trim() || base, description: fm.description ?? '', filePath: file })
+      } catch {
+        out.push({ kind: 'agent', name: base, description: '', filePath: file })
+      }
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /**
