@@ -124,12 +124,27 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  /* Wrap when the action buttons can't all fit on one row, so none (e.g. the
+     ＋ new-session button) gets clipped off the right edge of the 220px rail. */
+  flex-wrap: wrap;
+  gap: 4px 8px;
   padding: 10px 12px 6px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
+}
+
+/* Tighten the header's icon-button row so more fit before wrapping. */
+.sidebar-header .row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.sidebar-header .row .btn.ghost {
+  padding: 2px 4px;
 }
 
 .sidebar-list {
