@@ -169,6 +169,23 @@ export class AutoExpandService {
       taskSessionId: null
     }
 
+    // Reconcile stale state first: a feature stuck in 'implementing' whose task
+    // session was merged or removed (its taskSessionId no longer resolves to a
+    // live session) is not actually in flight. Without this, such features pile
+    // up and block the throttle forever — "N still implementing" with nothing to
+    // merge. Flip them to 'merged' so they stop counting.
+    const liveIds = new Set(this.persistence.state.sessions.map((s) => s.id))
+    for (const f of this.features.list(session.id)) {
+      if (
+        f.auto &&
+        f.status === 'implementing' &&
+        (!f.taskSessionId || !liveIds.has(f.taskSessionId))
+      ) {
+        f.status = 'merged'
+        this.features.save(f)
+      }
+    }
+
     // Throttle: don't pile up auto tasks faster than they get merged/reviewed.
     const inFlight = this.features
       .list(session.id)
