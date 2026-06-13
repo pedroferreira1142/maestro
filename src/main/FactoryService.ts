@@ -2,6 +2,7 @@ import { BrowserWindow, shell } from 'electron'
 import { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
+import type { GameEvent } from '../shared/gamification'
 import {
   ConductorMessage,
   FactoryArtifact,
@@ -122,7 +123,10 @@ export class FactoryService {
    *  pre-scan discovery await), so the 60s timer can't double-dispatch it. */
   private autoProposing = false
 
-  constructor(private getWin: () => BrowserWindow | null) {
+  constructor(
+    private getWin: () => BrowserWindow | null,
+    private emitGame: (e: GameEvent) => void = () => {}
+  ) {
     this.state = this.store.load()
     this.runs = restoreRuns(this.store.loadRuns())
     // A suggestion caught mid-create when the app closed is settled back to 'open'.
@@ -1148,6 +1152,11 @@ export class FactoryService {
         relatedArtifacts: related,
         createdAt: now,
         updatedAt: now
+      })
+      // Award only for a genuinely new artifact (not a re-author of an existing one).
+      this.emitGame({
+        type: input.kind === 'agent' ? 'factory.agent' : 'factory.skill',
+        meta: { name: input.name }
       })
     }
     // Add the reverse edges (connection map is bidirectional).

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import type { GameEvent } from '../shared/gamification'
 import type { Feature, SessionInfo } from '../shared/types'
 import { slugify } from './GitService'
 import { Persistence } from './Persistence'
@@ -43,7 +44,8 @@ function implementPrompt(feature: Feature): string {
 export class FeatureService {
   constructor(
     private persistence: Persistence,
-    private sessions: SessionManager
+    private sessions: SessionManager,
+    private emitGame: (e: GameEvent) => void = () => {}
   ) {}
 
   private get features(): Feature[] {
@@ -70,8 +72,12 @@ export class FeatureService {
   save(feature: Feature): void {
     const list = this.features
     const idx = list.findIndex((f) => f.id === feature.id)
-    if (idx >= 0) list[idx] = feature
-    else list.push(feature)
+    if (idx >= 0) {
+      list[idx] = feature
+    } else {
+      list.push(feature)
+      this.emitGame({ type: 'feature.save' }) // award only on a newly-created spec
+    }
     this.persistence.scheduleSave()
   }
 

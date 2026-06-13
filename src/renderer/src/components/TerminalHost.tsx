@@ -30,13 +30,26 @@ const TERM_THEME = {
   brightWhite: '#ffffff'
 }
 
+/** Per-theme surface colors so the terminal canvas matches the active app theme
+ *  (xterm can't read CSS variables — these mirror the --bg/--text/--accent of
+ *  each theme block in styles.css). The ANSI palette stays shared (content colors). */
+type AppTheme = 'dark' | 'neon' | 'synthwave'
+const THEME_SURFACE: Record<AppTheme, Pick<typeof TERM_THEME, 'background' | 'foreground' | 'cursor' | 'selectionBackground'>> = {
+  dark: { background: '#16171a', foreground: '#d7d8db', cursor: '#d97757', selectionBackground: '#3b4252' },
+  neon: { background: '#0c0e14', foreground: '#e6f1ff', cursor: '#22d3ee', selectionBackground: '#243049' },
+  synthwave: { background: '#190f2e', foreground: '#ffe9f6', cursor: '#ff2e88', selectionBackground: '#3d2a6b' }
+}
+
 /**
- * With a custom background image, xterm's own background goes fully
- * transparent (#RRGGBBAA) so the image shows through the translucent
- * .term-container behind it; otherwise the usual solid dark background.
+ * The xterm theme for the active app theme. With a custom background image,
+ * xterm's own background goes fully transparent (#RRGGBBAA) so the image shows
+ * through the translucent .term-container behind it; otherwise the theme's
+ * solid background.
  */
-function themeFor(hasBackground: boolean): typeof TERM_THEME {
-  return hasBackground ? { ...TERM_THEME, background: '#16171a00' } : TERM_THEME
+function themeFor(theme: AppTheme, hasBackground: boolean): typeof TERM_THEME {
+  const surface = THEME_SURFACE[theme] ?? THEME_SURFACE.dark
+  const background = hasBackground ? surface.background + '00' : surface.background
+  return { ...TERM_THEME, ...surface, background }
 }
 
 interface Props {
@@ -68,6 +81,7 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
   const attachDroppedFile = useStore((s) => s.attachDroppedFile)
   const settings = useStore((s) => s.settings)
   const hasBackground = useStore((s) => s.backgroundDataUrl !== null)
+  const theme = useStore((s) => s.settings?.theme ?? 'dark')
   const isClaude = terminal.config.kind === 'claude'
 
   // Paste: in claude terminals an image on the clipboard becomes an attachment
@@ -93,7 +107,10 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
       cursorBlink: true,
       allowProposedApi: true,
       allowTransparency: true,
-      theme: themeFor(useStore.getState().backgroundDataUrl !== null)
+      theme: themeFor(
+        useStore.getState().settings?.theme ?? 'dark',
+        useStore.getState().backgroundDataUrl !== null
+      )
     })
     const fit = new FitAddon()
     const search = new SearchAddon()
@@ -182,11 +199,11 @@ export function TerminalHost({ sessionId, terminal, visible }: Props): JSX.Eleme
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  // React to the background being set/removed while the terminal is open.
+  // React to the theme or background being changed while the terminal is open.
   useEffect(() => {
     const term = termRef.current
-    if (term) term.options.theme = themeFor(hasBackground)
-  }, [hasBackground])
+    if (term) term.options.theme = themeFor(theme, hasBackground)
+  }, [theme, hasBackground])
 
   useEffect(() => {
     if (visible) {

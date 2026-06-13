@@ -30,6 +30,7 @@ import type {
   WorktreeTaskState
 } from '../../shared/types'
 import { type ClaudeModelAlias, getModelAlias, setModelAlias } from '../../shared/claudeArgs'
+import type { GameCelebration, GameSnapshot } from '../../shared/gamification'
 
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
 export interface AttentionEntry {
@@ -183,7 +184,7 @@ interface AppStore {
   /** Whether the Settings dialog (repo categories etc.) is open. */
   settingsOpen: boolean
   /** Which Settings tab the dialog opens on (clickable once open). */
-  settingsTab: 'categories' | 'token-efficiency'
+  settingsTab: 'categories' | 'token-efficiency' | 'appearance'
   /** The session whose environment-variables editor is open; null when closed. */
   envEditorSessionId: string | null
   /** Saved reusable actions (shell commands), shared across sessions. */
@@ -218,8 +219,8 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
-  /** Which surface the main area shows: a session's terminals, the Conductor chat, or the Factory. */
-  view: 'session' | 'conductor' | 'factory'
+  /** Which surface the main area shows: a session's terminals, the Conductor chat, the Factory, or the Arcade. */
+  view: 'session' | 'conductor' | 'factory' | 'arcade'
   /** The Conductor conversation, oldest first (pushed from main). */
   conductorMessages: ConductorMessage[]
   /**
@@ -252,6 +253,12 @@ interface AppStore {
   worktreeStates: Record<string, WorktreeTaskState>
   /** Worktree sessions with a readiness check in flight (badge shows 'checking'). */
   worktreeChecking: Record<string, boolean>
+  /** Gamification snapshot (XP/level/streak/achievements/quests), pushed from main. */
+  game: GameSnapshot | null
+  /** The level-up / achievement / quest / streak currently being celebrated (auto-advances). */
+  celebration: GameCelebration | null
+  /** Pending celebrations waiting their turn (a single award can emit several). */
+  celebrationQueue: GameCelebration[]
 
   init(): Promise<void>
   refresh(): Promise<void>
@@ -300,10 +307,12 @@ interface AppStore {
   loadCategoriesAndSkills(): Promise<void>
   saveCategories(categories: RepoCategory[]): Promise<void>
   setSessionCategory(sessionId: string, categoryId: string | null): Promise<void>
-  openSettings(tab?: 'categories' | 'token-efficiency'): void
+  openSettings(tab?: 'categories' | 'token-efficiency' | 'appearance'): void
   closeSettings(): void
   /** Reload the settings object from main (after a save elsewhere). */
   reloadSettings(): Promise<void>
+  /** Optimistically apply + persist a partial settings change. */
+  patchSettings(partial: Partial<Settings>): Promise<void>
   openEnvEditor(sessionId: string): void
   closeEnvEditor(): void
   /**
@@ -432,6 +441,18 @@ interface AppStore {
   dismissSuggestionBanner(): void
   /** Mirror the main-process headless lock (pushed from main on every flip). */
   setFactoryBusy(busy: boolean): void
+  /** Switch the main area to the Arcade (gamification dashboard). */
+  openArcade(): void
+  /** Load the gamification snapshot. */
+  loadGame(): Promise<void>
+  /** Replace the gamification snapshot (pushed from main). */
+  applyGame(snapshot: GameSnapshot): void
+  /** Enqueue a level-up / achievement / quest / streak celebration (shown in turn). */
+  showCelebration(celebration: GameCelebration): void
+  /** Advance to the next queued celebration (or clear when the queue is empty). */
+  advanceCelebration(): void
+  /** Skip the current celebration and advance to the next. */
+  dismissCelebration(): void
   /** Load the factory registry + runs (and kick off source discovery). */
   loadFactory(): Promise<void>
   /** (Re)discover the connected MCP sources. */
@@ -490,6 +511,12 @@ const SUGGEST_BANNER_MS = 10000
 /** Identifies the latest suggestion banner, so only it clears itself. */
 let bannerNonce = 0
 
+/** How long a gamification celebration stays before auto-clearing. */
+const CELEBRATION_MS = 6000
+
+/** Identifies the latest celebration, so only it clears itself. */
+let celebrationNonce = 0
+
 /** Default active tab for a session: its persisted active terminal, else first. */
 function defaultActive(session: SessionInfo): string {
   return session.config.activeTerminalId ?? session.terminals[0]?.config.id ?? 'terminal'
@@ -538,6 +565,9 @@ export const useStore = create<AppStore>()((set, get) => ({
   factoryTab: null,
   suggestionBanner: null,
   factoryBusy: false,
+  game: null,
+  celebration: null,
+  celebrationQueue: [],
   agentsSnapshot: null,
   notice: null,
   worktreeStates: {},
@@ -1041,6 +1071,13 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   async reloadSettings() {
     set({ settings: await window.api.getSettings() })
+  },
+
+  async patchSettings(partial) {
+    const settings = get().settings
+    if (!settings) return
+    set({ settings: { ...settings, ...partial } })
+    await window.api.setSettings(partial)
   },
 
   openEnvEditor(sessionId) {
@@ -1573,6 +1610,42 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   dismissSuggestionBanner() {
     set({ suggestionBanner: null })
+  },
+
+  openArcade() {
+    set({ view: 'arcade' })
+    void get().loadGame()
+  },
+
+  async loadGame() {
+    const game = await window.api.getGameState()
+    set({ game })
+  },
+
+  applyGame(snapshot) {
+    set({ game: snapshot })
+  },
+
+  showCelebration(celebration) {
+    set({ celebrationQueue: [...get().celebrationQueue, celebration] })
+    // Start the pump only if nothing is currently showing.
+    if (!get().celebration) get().advanceCelebration()
+  },
+
+  advanceCelebration() {
+    const queue = get().celebrationQueue
+    const next = queue[0] ?? null
+    set({ celebration: next, celebrationQueue: queue.slice(1) })
+    if (!next) return
+    const nonce = ++celebrationNonce
+    setTimeout(() => {
+      // Only the latest scheduled advance fires (a manual dismiss bumps the nonce).
+      if (celebrationNonce === nonce) get().advanceCelebration()
+    }, CELEBRATION_MS)
+  },
+
+  dismissCelebration() {
+    get().advanceCelebration()
   },
 
   async loadFactory() {

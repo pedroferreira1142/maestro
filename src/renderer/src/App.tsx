@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, type CSSProperties } from 'react'
 import { ActionDialog } from './components/ActionDialog'
+import { ArcadePane } from './components/ArcadePane'
 import { AutoExpandDialog } from './components/AutoExpandDialog'
 import { BackgroundDialog } from './components/BackgroundDialog'
 import { BroadcastDialog } from './components/BroadcastDialog'
+import { Celebration } from './components/Celebration'
 import { CommandPalette } from './components/CommandPalette'
 import { ConductorPane } from './components/ConductorPane'
 import { FactoryPane } from './components/FactoryPane'
@@ -28,6 +30,18 @@ import type { SessionInfo } from '../../shared/types'
 
 function defaultActive(session: SessionInfo): string {
   return session.config.activeTerminalId ?? session.terminals[0]?.config.id ?? 'terminal'
+}
+
+/** Pick a readable foreground (dark vs white) for text on a solid accent fill. */
+function accentForeground(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return '#ffffff'
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  return lum > 0.6 ? '#10131a' : '#ffffff'
 }
 
 export default function App(): JSX.Element {
@@ -61,6 +75,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void useStore.getState().init()
+    void useStore.getState().loadGame()
     const unsubs = [
       window.api.onSessionsChanged(() => void useStore.getState().refresh()),
       window.api.onStatusChange((id, status) => useStore.getState().applyStatus(id, status)),
@@ -77,6 +92,12 @@ export default function App(): JSX.Element {
       window.api.onFactoryChanged((state) => useStore.getState().applyFactoryState(state)),
       window.api.onFactoryRuns((runs) => useStore.getState().applyFactoryRuns(runs)),
       window.api.onFactoryBusy((busy) => useStore.getState().setFactoryBusy(busy)),
+      window.api.onGamificationChanged((snap) => useStore.getState().applyGame(snap)),
+      window.api.onGamificationCelebrate((c) => {
+        const st = useStore.getState()
+        // Main always tracks; the renderer only celebrates when gamification is on.
+        if (st.settings?.gamificationEnabled) st.showCelebration(c)
+      }),
       window.api.onFactorySuggestion((suggestion) => {
         const st = useStore.getState()
         st.showSuggestionBanner(suggestion)
@@ -156,7 +177,19 @@ export default function App(): JSX.Element {
   if (!settings) return <div className="app loading">Loading…</div>
 
   return (
-    <div className={`app${backgroundDataUrl ? ' has-bg' : ''}`}>
+    <div
+      className={`app theme-${settings.theme ?? 'dark'}${
+        settings.gamificationReduceMotion ? ' reduce-motion' : ''
+      }${backgroundDataUrl ? ' has-bg' : ''}`}
+      style={
+        settings.accentColor
+          ? ({
+              '--accent': settings.accentColor,
+              '--accent-fg': accentForeground(settings.accentColor)
+            } as CSSProperties)
+          : undefined
+      }
+    >
       {backgroundDataUrl && (
         <div
           className="app-bg"
@@ -175,6 +208,8 @@ export default function App(): JSX.Element {
           <ConductorPane />
         ) : view === 'factory' ? (
           <FactoryPane />
+        ) : view === 'arcade' ? (
+          <ArcadePane />
         ) : sessions.length === 0 ? (
           <div className="welcome">
             <h1>Maestro</h1>
@@ -235,6 +270,7 @@ export default function App(): JSX.Element {
       {paletteOpen && <CommandPalette />}
       {broadcastOpen && <BroadcastDialog />}
       {notice && <div className="app-notice">{notice}</div>}
+      <Celebration />
     </div>
   )
 }

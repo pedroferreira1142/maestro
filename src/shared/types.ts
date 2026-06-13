@@ -1027,6 +1027,16 @@ export interface Settings {
   tokenEfficiencyRepoOverrides: Record<string, TokenEfficiencyOverride>
   /** Path of the external Agent Factory registry.json (Factory → Agents tab). */
   agentRegistryPath: string
+  /** Color theme applied to the whole app (CSS-variable override). */
+  theme: 'dark' | 'neon' | 'synthwave'
+  /** Accent color override (any CSS color), or null to use the theme's default. */
+  accentColor: string | null
+  /** Master switch for gamification UI (XP HUD, Arcade pane, celebrations). Progress is always tracked. */
+  gamificationEnabled: boolean
+  /** Suppress confetti/animations on celebrations (toasts still show). */
+  gamificationReduceMotion: boolean
+  /** Play a short sound on level-ups / achievement unlocks. */
+  gamificationSound: boolean
 }
 
 export interface WindowBounds {
@@ -1070,7 +1080,12 @@ export const DEFAULT_SETTINGS: Settings = {
   watchdogUnansweredMinutes: 5,
   tokenEfficiency: DEFAULT_TOKEN_EFFICIENCY,
   tokenEfficiencyRepoOverrides: {},
-  agentRegistryPath: 'C:\\repos\\agent-factory\\registry\\registry.json'
+  agentRegistryPath: 'C:\\repos\\agent-factory\\registry\\registry.json',
+  theme: 'dark',
+  accentColor: null,
+  gamificationEnabled: true,
+  gamificationReduceMotion: false,
+  gamificationSound: false
 }
 
 /**

@@ -324,7 +324,88 @@ function CategoriesTab(): JSX.Element {
   )
 }
 
-type SettingsTab = 'categories' | 'token-efficiency'
+type SettingsTab = 'categories' | 'token-efficiency' | 'appearance'
+
+const THEMES: { id: 'dark' | 'neon' | 'synthwave'; label: string }[] = [
+  { id: 'dark', label: 'Dark' },
+  { id: 'neon', label: 'Neon' },
+  { id: 'synthwave', label: 'Synthwave' }
+]
+
+const ACCENTS = ['#d97757', '#22d3ee', '#a855f7', '#22c55e', '#f59e0b', '#ff2e88', '#3b82f6']
+
+/** Appearance: theme, accent color, and gamification toggles. */
+function AppearanceTab(): JSX.Element {
+  const settings = useStore((s) => s.settings)
+  const patch = useStore((s) => s.patchSettings)
+  if (!settings) return <div className="settings-body" />
+
+  return (
+    <div className="settings-body appearance-tab">
+      <section className="appearance-section">
+        <h3>Theme</h3>
+        <div className="appearance-themes">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              className={`theme-swatch theme-${t.id}${settings.theme === t.id ? ' sel' : ''}`}
+              onClick={() => void patch({ theme: t.id })}
+            >
+              <span className="theme-swatch-name">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="appearance-section">
+        <h3>Accent color</h3>
+        <div className="swatches">
+          <button
+            className={`swatch swatch-default${!settings.accentColor ? ' sel' : ''}`}
+            title="Theme default"
+            onClick={() => void patch({ accentColor: null })}
+          />
+          {ACCENTS.map((c) => (
+            <button
+              key={c}
+              className={`swatch${settings.accentColor === c ? ' sel' : ''}`}
+              style={{ background: c }}
+              onClick={() => void patch({ accentColor: c })}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="appearance-section">
+        <h3>Gamification</h3>
+        <label className="appearance-toggle">
+          <input
+            type="checkbox"
+            checked={settings.gamificationEnabled}
+            onChange={(e) => void patch({ gamificationEnabled: e.target.checked })}
+          />
+          <span>Enable XP, levels, achievements & the Arcade</span>
+        </label>
+        <label className="appearance-toggle">
+          <input
+            type="checkbox"
+            checked={settings.gamificationReduceMotion}
+            onChange={(e) => void patch({ gamificationReduceMotion: e.target.checked })}
+          />
+          <span>Reduce motion (no confetti / animations)</span>
+        </label>
+        <label className="appearance-toggle">
+          <input
+            type="checkbox"
+            checked={settings.gamificationSound}
+            onChange={(e) => void patch({ gamificationSound: e.target.checked })}
+          />
+          <span>Play a sound on level-ups & unlocks</span>
+        </label>
+      </section>
+    </div>
+  )
+}
 
 /**
  * The app Settings dialog: "Repo categories" (context profiles) and "Token
@@ -353,9 +434,16 @@ export function SettingsDialog(): JSX.Element {
           >
             Token Efficiency
           </button>
+          <button
+            className={`settings-tab${tab === 'appearance' ? ' active' : ''}`}
+            onClick={() => setTab('appearance')}
+          >
+            Appearance
+          </button>
         </div>
         {tab === 'categories' && <CategoriesTab />}
         {tab === 'token-efficiency' && <TokenEfficiencyTab />}
+        {tab === 'appearance' && <AppearanceTab />}
       </div>
     </div>
   )

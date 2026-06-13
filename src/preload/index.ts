@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 import type { Api, CreateWorktreeOpts, Unsubscribe } from '../shared/api'
+import type { GameCelebration, GameSnapshot } from '../shared/gamification'
 import type {
   AgentsSnapshot,
   AutoExpandRun,
@@ -153,6 +154,12 @@ const api: Api = {
   onFactorySuggestion: (cb) =>
     subscribe('factory:suggestion', (s) => cb(s as FactorySuggestion)),
   onFactoryBusy: (cb) => subscribe('factory:busy', (b) => cb(Boolean(b))),
+
+  getGameState: () => ipcRenderer.invoke('gamification:get'),
+  onGamificationChanged: (cb) =>
+    subscribe('gamification:changed', (snap) => cb(snap as GameSnapshot)),
+  onGamificationCelebrate: (cb) =>
+    subscribe('gamification:celebrate', (c) => cb(c as GameCelebration)),
 
   getInstalledAgents: () => ipcRenderer.invoke('agents:get'),
   refreshInstalledAgents: () => ipcRenderer.invoke('agents:refresh'),

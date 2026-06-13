@@ -34,6 +34,7 @@ import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
+import { GamificationService } from './GamificationService'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
@@ -64,6 +65,7 @@ export function registerIpc(
   factory: FactoryService,
   agents: AgentRegistryService,
   tokenEff: TokenEfficiencyService,
+  gamification: GamificationService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -268,6 +270,9 @@ export function registerIpc(
     factory.createFromSuggestion(id, kind)
   )
   ipcMain.handle('factory:dismissSuggestion', (_e, id: string) => factory.dismissSuggestion(id))
+
+  // --- gamification (XP / levels / achievements / streaks / quests) ---
+  ipcMain.handle('gamification:get', () => gamification.snapshot())
 
   // --- installed agents + external agent-factory registry (Factory → Agents tab) ---
   ipcMain.handle('agents:get', () => agents.snapshot())

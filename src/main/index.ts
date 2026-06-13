@@ -1,11 +1,14 @@
 import { app, BrowserWindow, shell } from 'electron'
+import { EventEmitter } from 'events'
 import { join } from 'path'
+import type { GameEvent } from '../shared/gamification'
 import { AgentRegistryService } from './AgentRegistryService'
 import { AutoExpandService } from './AutoExpand'
 import { ConductorService } from './ConductorService'
 import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
 import { FsService } from './FsService'
+import { GamificationService } from './GamificationService'
 import { registerIpc } from './ipc'
 import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
@@ -83,18 +86,33 @@ if (!gotLock) {
     app.setAppUserModelId('com.pedroferreira.maestro')
     persistence.load()
 
+    // Gamification: services push fire-and-forget GameEvents onto this bus; the
+    // single GamificationService subscriber owns all XP/level/achievement logic
+    // (one place for dedupe). `emitGame` is injected like `getWin` and defaults
+    // to a no-op in each service, so a missing wire can never break a call site.
+    const gameBus = new EventEmitter()
+    const emitGame = (e: GameEvent): void => {
+      try {
+        gameBus.emit('game', e)
+      } catch {
+        // never let a game event affect the caller
+      }
+    }
+
     const fsService = new FsService(
       (sessionId, events) => getWin()?.webContents.send('fs:events', sessionId, events),
       () => persistence.state.settings.ignoreNames
     )
     const tokenEff = new TokenEfficiencyService(persistence)
-    const sessions = new SessionManager(persistence, fsService, tokenEff, getWin)
-    const sentinels = new SentinelService(persistence, getWin)
-    const features = new FeatureService(persistence, sessions)
-    const autoExpand = new AutoExpandService(persistence, features, getWin)
+    const sessions = new SessionManager(persistence, fsService, tokenEff, getWin, emitGame)
+    const sentinels = new SentinelService(persistence, getWin, emitGame)
+    const features = new FeatureService(persistence, sessions, emitGame)
+    const autoExpand = new AutoExpandService(persistence, features, getWin, emitGame)
     const conductor = new ConductorService(persistence, sessions, features, autoExpand, getWin)
-    const factory = new FactoryService(getWin)
+    const factory = new FactoryService(getWin, emitGame)
     const agentRegistry = new AgentRegistryService(persistence, getWin)
+    const gamification = new GamificationService(getWin)
+    gameBus.on('game', (e: GameEvent) => gamification.award(e))
     registerIpc(
       sessions,
       fsService,
@@ -106,6 +124,7 @@ if (!gotLock) {
       factory,
       agentRegistry,
       tokenEff,
+      gamification,
       getWin
     )
 
@@ -116,8 +135,12 @@ if (!gotLock) {
     autoExpand.start()
     tokenEff.start()
     factory.start()
-    // Feed completed Conductor turns into the Factory's self-growth detector.
-    conductor.onTurnComplete((messages) => factory.considerConversation(messages))
+    // Feed completed Conductor turns into the Factory's self-growth detector
+    // and the gamification engine.
+    conductor.onTurnComplete((messages) => {
+      factory.considerConversation(messages)
+      emitGame({ type: 'conductor.turn' })
+    })
 
     // macOS convention: closing the window keeps the app (and its PTYs)
     // running; clicking the dock icon brings the window back.
@@ -128,6 +151,7 @@ if (!gotLock) {
     app.on('before-quit', () => {
       tokenEff.dispose()
       agentRegistry.dispose()
+      gamification.dispose()
       factory.dispose()
       conductor.dispose()
       autoExpand.dispose()

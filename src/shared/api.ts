@@ -1,3 +1,4 @@
+import type { GameCelebration, GameSnapshot } from './gamification'
 import type {
   AgentsSnapshot,
   AttachmentInfo,
@@ -293,6 +294,14 @@ export interface Api {
   onFactorySuggestion(cb: (suggestion: FactorySuggestion) => void): Unsubscribe
   /** Fired when the headless lock flips — lets the UI disable actions that would no-op. */
   onFactoryBusy(cb: (busy: boolean) => void): Unsubscribe
+
+  // gamification (XP / levels / achievements / streaks / quests)
+  /** Current gamification snapshot (XP, level, streak, achievements, quests). */
+  getGameState(): Promise<GameSnapshot>
+  /** Fired on every gamification change (drives the XP HUD + Arcade pane). */
+  onGamificationChanged(cb: (snapshot: GameSnapshot) => void): Unsubscribe
+  /** Fired on a discrete level-up / achievement / quest / streak (drives the celebration). */
+  onGamificationCelebrate(cb: (celebration: GameCelebration) => void): Unsubscribe
 
   // installed agents + external agent-factory registry (Factory → Agents tab)
   /** Installed agents (~/.claude/agents + session repos) merged with the external registry. */

@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { ChildProcess, execFile, spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
+import type { GameEvent } from '../shared/gamification'
 import {
   SentinelConfig,
   SentinelFinding,
@@ -73,7 +74,8 @@ export class SentinelService {
 
   constructor(
     private persistence: Persistence,
-    private getWin: () => BrowserWindow | null
+    private getWin: () => BrowserWindow | null,
+    private emitGame: (e: GameEvent) => void = () => {}
   ) {}
 
   start(): void {
@@ -273,6 +275,7 @@ export class SentinelService {
     run.summary = summary
     run.findings = findings
     this.broadcast(run.sessionId)
+    if (status !== 'error') this.emitGame({ type: 'sentinel.run' })
   }
 
   private broadcast(sessionId: string): void {

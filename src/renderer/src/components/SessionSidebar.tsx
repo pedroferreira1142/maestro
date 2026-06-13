@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { UsageWidget } from './UsageWidget'
+import { XpHud } from './XpHud'
 
 export const STATUS_GLYPH: Record<SessionStatus, string> = {
   starting: '◌',
@@ -494,6 +495,37 @@ function ConductorEntry(): JSX.Element {
   )
 }
 
+/**
+ * The pinned, app-level "Arcade" row: gamification dashboard (XP, level,
+ * achievements, daily quests, stats). Hidden when gamification is disabled.
+ */
+function ArcadeEntry(): JSX.Element | null {
+  const view = useStore((s) => s.view)
+  const enabled = useStore((s) => s.settings?.gamificationEnabled ?? true)
+  const openArcade = useStore((s) => s.openArcade)
+  const game = useStore((s) => s.game)
+  if (!enabled) return null
+  const active = view === 'arcade'
+  const level = game?.level ?? 1
+  const streak = game?.streak.current ?? 0
+  return (
+    <div
+      className={`session-entry conductor-entry${active ? ' active' : ''}`}
+      title="Arcade — XP, levels, achievements, daily quests"
+      onClick={openArcade}
+    >
+      <span className="glyph">🎮</span>
+      <div className="session-meta">
+        <span className="session-name">Arcade</span>
+        <span className="session-folder">
+          Level {level}
+          {streak > 0 ? ` · 🔥 ${streak}` : ''}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function SessionSidebar(): JSX.Element {
   const sessions = useStore((s) => s.sessions)
   const activeId = useStore((s) => s.activeId)
@@ -548,9 +580,11 @@ export function SessionSidebar(): JSX.Element {
           </button>
         </span>
       </div>
+      <XpHud />
       <div className="sidebar-list">
         <ConductorEntry />
         <FactoryEntry />
+        <ArcadeEntry />
         {ordered.map((s, i) => (
           <SessionEntry key={s.config.id} session={s} index={i} />
         ))}

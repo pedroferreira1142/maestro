@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
+import type { GameEvent } from '../shared/gamification'
 import {
   AutoExpandConfig,
   AutoExpandIdea,
@@ -56,7 +57,8 @@ export class AutoExpandService {
   constructor(
     private persistence: Persistence,
     private features: FeatureService,
-    private getWin: () => BrowserWindow | null
+    private getWin: () => BrowserWindow | null,
+    private emitGame: (e: GameEvent) => void = () => {}
   ) {}
 
   start(): void {
@@ -292,6 +294,7 @@ export class AutoExpandService {
     run.finishedAt = Date.now()
     run.status = status
     this.broadcast(run.sessionId)
+    if (status === 'done') this.emitGame({ type: 'autoexpand.done' })
   }
 
   private broadcast(sessionId: string): void {

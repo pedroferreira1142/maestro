@@ -6,10 +6,72 @@
   --text: #d7d8db;
   --dim: #8b8d94;
   --accent: #d97757;
+  /* readable text on a solid --accent fill (overridden per-theme + by a custom accent) */
+  --accent-fg: #ffffff;
   --attention: #e2b93d;
   --working: #58a6ff;
   --error: #e5484d;
   --green: #4cc38a;
+  /* gamification palette */
+  --xp: #58a6ff;
+  --level-up: #ffd54a;
+  --badge: #d97757;
+  --celebrate-1: #ff6b6b;
+  --celebrate-2: #4cc38a;
+}
+
+/* Neon theme — cyan/violet on near-black, soft glows. */
+.app.theme-neon {
+  --bg: #0c0e14;
+  --panel: #12151f;
+  --panel-2: #171b28;
+  --border: #243049;
+  --text: #e6f1ff;
+  --dim: #7e8ba8;
+  --accent: #22d3ee;
+  --accent-fg: #06121a;
+  --attention: #fbbf24;
+  --working: #a78bfa;
+  --error: #fb7185;
+  --green: #34d399;
+  --xp: #22d3ee;
+  --level-up: #fde047;
+  --badge: #a78bfa;
+  --celebrate-1: #22d3ee;
+  --celebrate-2: #a78bfa;
+}
+
+/* Synthwave theme — magenta/indigo, sunset accents. */
+.app.theme-synthwave {
+  --bg: #190f2e;
+  --panel: #21163f;
+  --panel-2: #2b1d52;
+  --border: #3d2a6b;
+  --text: #ffe9f6;
+  --dim: #a98fc8;
+  --accent: #ff2e88;
+  --accent-fg: #ffffff;
+  --attention: #ffd23f;
+  --working: #00e5ff;
+  --error: #ff5d73;
+  --green: #4ade80;
+  --xp: #ff2e88;
+  --level-up: #ffd23f;
+  --badge: #00e5ff;
+  --celebrate-1: #ff2e88;
+  --celebrate-2: #00e5ff;
+}
+.app.theme-synthwave .btn.primary {
+  background: linear-gradient(135deg, var(--accent), #b14bff);
+  border-color: transparent;
+}
+
+/* Reduce-motion: kill all animations/transitions app-wide. */
+.app.reduce-motion *,
+.app.reduce-motion *::before,
+.app.reduce-motion *::after {
+  animation: none !important;
+  transition: none !important;
 }
 
 * {
@@ -85,7 +147,7 @@ body {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-weight: 600;
 }
 
@@ -1117,7 +1179,7 @@ body {
 
 .context-menu button:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 
 /* ---------- main area ---------- */
@@ -4806,4 +4868,382 @@ body {
 
 .statusbar-te.pending {
   color: var(--attention);
+}
+
+/* ===================== gamification ===================== */
+
+/* --- XP progress bar primitive (also used in the Arcade) --- */
+.xp-bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.xp-bar.lg {
+  height: 10px;
+}
+.xp-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--xp), var(--accent));
+  transition: width 0.5s ease;
+}
+
+/* --- sidebar XP HUD --- */
+.xp-hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 11px;
+}
+.xp-hud:hover {
+  background: var(--panel-2);
+}
+.xp-level {
+  font-weight: 700;
+  color: var(--level-up);
+  white-space: nowrap;
+}
+.xp-streak {
+  color: var(--attention);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* --- celebration toast + confetti --- */
+.celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  pointer-events: none;
+  overflow: hidden;
+}
+.celebration-card {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  animation: celebrate-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.celebration.kind-level-up .celebration-card {
+  border-color: var(--level-up);
+  box-shadow: 0 0 32px rgba(255, 213, 74, 0.35), 0 12px 40px rgba(0, 0, 0, 0.55);
+  animation: celebrate-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1), level-up-glow 1.4s ease-in-out 0.4s 2;
+}
+.celebration-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+.celebration-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.celebration-sub {
+  font-size: 12px;
+  color: var(--dim);
+}
+.celebration-xp {
+  margin-left: 6px;
+  font-weight: 700;
+  color: var(--level-up);
+}
+
+.confetti {
+  position: absolute;
+  inset: 0;
+}
+.confetti-bit {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--celebrate-1);
+  animation: confetti-fall 1.7s ease-in forwards;
+}
+.confetti-bit.hue-0 { background: var(--celebrate-1); }
+.confetti-bit.hue-1 { background: var(--celebrate-2); }
+.confetti-bit.hue-2 { background: var(--level-up); }
+.confetti-bit.hue-3 { background: var(--accent); }
+.confetti-bit.hue-4 { background: var(--working); }
+.confetti-bit.hue-5 { background: var(--green); }
+
+@keyframes confetti-fall {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(var(--dx) * 140px), calc(var(--dy) * 460px))
+      rotate(calc(var(--rot) * 3));
+    opacity: 0;
+  }
+}
+@keyframes celebrate-pop {
+  0% {
+    transform: translateX(-50%) scale(0.7);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes level-up-glow {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(255, 213, 74, 0.3), 0 12px 40px rgba(0, 0, 0, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 38px rgba(255, 213, 74, 0.6), 0 12px 40px rgba(0, 0, 0, 0.55);
+  }
+}
+@keyframes badge-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- Arcade pane --- */
+.arcade-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+.arcade-empty {
+  color: var(--dim);
+  padding: 40px;
+  text-align: center;
+}
+.arcade-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.arcade-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.arcade-sub,
+.arcade-dim {
+  color: var(--dim);
+  font-size: 12px;
+}
+.arcade-dim.small {
+  font-size: 11px;
+}
+.arcade-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.arcade-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.arcade-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.arcade-card-head h3,
+.arcade-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.arcade-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 0;
+}
+.arcade-level-badge {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 16px;
+  color: #1a1208;
+  background: radial-gradient(circle at 35% 30%, #ffe9a8, var(--level-up));
+  box-shadow: 0 0 22px rgba(255, 213, 74, 0.35);
+}
+.arcade-hero-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.arcade-xp-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+.arcade-streak {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 0;
+}
+.arcade-streak-flame {
+  font-size: 38px;
+}
+.arcade-streak-num {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--attention);
+}
+.arcade-quests {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.quest-row .quest-top {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+.quest-row.done .quest-title {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.quest-reward {
+  font-weight: 700;
+  color: var(--level-up);
+}
+.quest-row.done .quest-reward {
+  color: var(--green);
+}
+.arcade-ach-group {
+  margin-bottom: 14px;
+}
+.arcade-ach-cat {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+.arcade-ach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.achievement {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 12px;
+}
+.achievement.unlocked {
+  border-color: var(--badge);
+  animation: badge-pop 0.4s ease-out;
+}
+.achievement.locked {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+.achievement-icon {
+  font-size: 17px;
+}
+.achievement-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arcade-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 12px;
+}
+.arcade-stat {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.arcade-stat-num {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+/* --- Settings → Appearance tab --- */
+.appearance-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 16px 4px;
+}
+.appearance-section h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.appearance-themes {
+  display: flex;
+  gap: 10px;
+}
+.theme-swatch {
+  flex: 1;
+  height: 56px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  padding: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.theme-swatch.sel {
+  border-color: var(--text);
+}
+.theme-swatch.theme-dark {
+  background: linear-gradient(135deg, #16171a, #2a2c33);
+}
+.theme-swatch.theme-neon {
+  background: linear-gradient(135deg, #0c0e14, #22d3ee);
+}
+.theme-swatch.theme-synthwave {
+  background: linear-gradient(135deg, #190f2e, #ff2e88);
+}
+.swatch-default {
+  background: conic-gradient(#d97757, #22d3ee, #a855f7, #22c55e, #ff2e88, #d97757);
+}
+.appearance-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  cursor: pointer;
 }

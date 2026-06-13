@@ -2,6 +2,7 @@ import { BrowserWindow, Notification } from 'electron'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { existsSync, rmSync } from 'fs'
+import type { GameEvent } from '../shared/gamification'
 import {
   BranchListing,
   GitCommit,
@@ -164,8 +165,12 @@ export class SessionManager {
     private persistence: Persistence,
     private fs: FsService,
     private tokenEff: TokenEfficiencyService,
-    private getWin: () => BrowserWindow | null
+    private getWin: () => BrowserWindow | null,
+    private emitGame: (e: GameEvent) => void = () => {}
   ) {}
+
+  /** Per-terminal last status, used only to award a turn on the working→done edge. */
+  private lastStatusForAward = new Map<string, SessionStatus>()
 
   private get state() {
     return this.persistence.state
@@ -246,6 +251,7 @@ export class SessionManager {
     for (const terminal of config.terminals) this.spawnTerminal(config, terminal, 'fresh')
     this.fs.start(config.id, config.folder, [])
     this.notifyChanged()
+    this.emitGame({ type: 'session.create' })
     return this.toInfo(config)
   }
 
@@ -343,7 +349,9 @@ export class SessionManager {
   async createCheckpoint(sessionId: string, label: string): Promise<RepoCheckpoint> {
     const config = this.getConfig(sessionId)
     if (!config) throw new Error('Unknown session')
-    return Git.createCheckpoint(config.folder, label)
+    const checkpoint = await Git.createCheckpoint(config.folder, label)
+    this.emitGame({ type: 'checkpoint.create' })
+    return checkpoint
   }
 
   /** Recent checkpoints for a session's repo, newest first. */
@@ -470,6 +478,7 @@ export class SessionManager {
     }
 
     this.notifyChanged()
+    this.emitGame({ type: 'worktree.create' })
     return this.toInfo(config)
   }
 
@@ -559,7 +568,13 @@ export class SessionManager {
 
     const result = await Git.mergeBranch(baseFolder, branch, baseBranch)
     if (!result.ok) return { ...result, autoCommitted }
-    return { ...(await this.pushAfterMerge(result, baseFolder, baseBranch)), autoCommitted }
+    const merged = { ...(await this.pushAfterMerge(result, baseFolder, baseBranch)), autoCommitted }
+    this.emitGame({ type: 'worktree.merge', meta: { commits: ahead ?? 0 } })
+    // A merge of a task that was spun off to implement a feature also ships it.
+    if (this.state.features.some((f) => f.taskSessionId === sessionId)) {
+      this.emitGame({ type: 'feature.merge' })
+    }
+    return merged
   }
 
   /** True if `branch` is the dedicated expansion branch of any auto-expand config. */
@@ -664,6 +679,7 @@ export class SessionManager {
     const title = prTitle(config.name, branch)
     const body = prBody(config.name, branch, baseBranch)
     const result = await Git.createPullRequest(config.folder, branch, baseBranch, title, body)
+    if (result.ok) this.emitGame({ type: 'worktree.pr' })
     return { ...result, autoCommitted }
   }
 
@@ -992,6 +1008,7 @@ export class SessionManager {
     const action = this.state.actions.find((a) => a.id === actionId)
     const command = action?.command.trim()
     if (!config || !action || !command) return null
+    this.emitGame({ type: 'action.run' })
 
     if (action.shell === 'claude') return this.runClaudeAction(config, command)
 
@@ -1287,6 +1304,15 @@ export class SessionManager {
     const terminal = config.terminals.find((t) => t.id === terminalId)
     // Only claude terminals dispatch queues or raise attention; shells stop here.
     if (!terminal || terminal.kind !== 'claude') return
+
+    // Award a "turn" once per real working→done edge. The map starts empty and
+    // restored terminals seed to non-'working' statuses, so launch never
+    // re-awards history; StatusDetector already collapses no-op transitions.
+    const prevForAward = this.lastStatusForAward.get(terminalId)
+    this.lastStatusForAward.set(terminalId, status)
+    if (status === 'done' && prevForAward === 'working') {
+      this.emitGame({ type: 'session.turn' })
+    }
 
     // Queue dispatch rides the settled transition: claude must then stay
     // settled (done/idle) for QUEUE_IDLE_DELAY_MS (re-checked when the countdown
