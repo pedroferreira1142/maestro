@@ -41,6 +41,10 @@ export function WorktreeTaskDialog(): JSX.Element {
   // Opt into a PR for review, and/or into doing it automatically when claude finishes.
   const [createPr, setCreatePr] = useState(false)
   const [autoComplete, setAutoComplete] = useState(false)
+  // Plan mode: start claude read-only so it presents a plan before touching code,
+  // and optionally let Maestro approve that plan automatically.
+  const [plan, setPlan] = useState(false)
+  const [autoAcceptPlan, setAutoAcceptPlan] = useState(false)
 
   // Auto-derive the branch from the type + task name until the user edits it directly.
   const onName = (v: string): void => {
@@ -63,7 +67,9 @@ export function WorktreeTaskDialog(): JSX.Element {
       baseBranch: baseBranch.trim() || pending.baseBranch,
       initialPrompt,
       completion: createPr ? 'pr' : 'merge',
-      autoComplete
+      autoComplete,
+      plan,
+      autoAcceptPlan: plan && autoAcceptPlan
     })
   }
 
@@ -129,6 +135,35 @@ export function WorktreeTaskDialog(): JSX.Element {
             onChange={(e) => setInitialPrompt(e.target.value)}
           />
         </label>
+
+        <div className="field">
+          <span>How the task starts</span>
+          <label className="check-row">
+            <input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} />
+            <span>
+              Plan first
+              <small className="check-hint">
+                Launches claude in plan mode (<code>--permission-mode plan</code>): it researches
+                and proposes a plan before changing any code.
+              </small>
+            </span>
+          </label>
+          <label className={`check-row${plan ? '' : ' disabled'}`}>
+            <input
+              type="checkbox"
+              checked={plan && autoAcceptPlan}
+              disabled={!plan}
+              onChange={(e) => setAutoAcceptPlan(e.target.checked)}
+            />
+            <span>
+              Auto-accept the plan
+              <small className="check-hint">
+                Maestro approves the plan automatically the moment claude presents it, so the task
+                moves straight from planning into execution unattended.
+              </small>
+            </span>
+          </label>
+        </div>
 
         <div className="field">
           <span>When the task is done</span>

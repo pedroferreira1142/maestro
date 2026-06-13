@@ -1732,6 +1732,15 @@ body {
   cursor: pointer;
 }
 
+.check-row.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.check-row.disabled input[type='checkbox'] {
+  cursor: default;
+}
+
 .check-row > span {
   display: flex;
   flex-direction: column;
