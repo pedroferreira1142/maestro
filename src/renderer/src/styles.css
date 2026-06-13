@@ -2683,6 +2683,23 @@ body {
   text-decoration: underline;
 }
 
+.sentinel-finding-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.btn.ghost.sentinel-fix-btn {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.sentinel-fix-ack {
+  font-size: 10px;
+  color: var(--accent);
+}
+
 /* sentinel dialog */
 .sentinel-prompt {
   resize: vertical;
