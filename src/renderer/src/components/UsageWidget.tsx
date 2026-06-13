@@ -216,6 +216,14 @@ export function UsageWidget(): JSX.Element {
   const now = Date.now()
   const proj = snap.projection
   const runOut = proj ? runOutLabel(proj, now) : null
+  // Session utilization for the always-on bar: prefer the live plan limit, but
+  // fall back to the transcript estimate (current block vs largest window so
+  // far) so a percentage still shows when the OAuth usage endpoint is
+  // unavailable. Clamp because the current block can exceed any past one.
+  const estSessionPct =
+    proj && proj.maxBlockTokens > 0
+      ? Math.min(100, Math.round((proj.blockTokens / proj.maxBlockTokens) * 100))
+      : null
   const shown = rows.slice(0, MAX_ROWS)
   const rest = rows.slice(MAX_ROWS)
   const restTotal = rest.reduce((sum, r) => sum + r.total.costUSD, 0)
@@ -344,12 +352,19 @@ export function UsageWidget(): JSX.Element {
         <span className="usage-coin">◍</span>
         <span className="usage-today">{fmtCost(snap.today.costUSD)} today</span>
         <span className="usage-dim">· {fmtCost(snap.total.costUSD)} total</span>
-        {limits && (
+        {limits ? (
           <span className="usage-dim" title="Plan usage: current 5h session · current week (all models)">
             · {Math.round(limits.session.utilization)}% session ·{' '}
             {Math.round(limits.week.utilization)}% week
           </span>
-        )}
+        ) : estSessionPct != null ? (
+          <span
+            className="usage-dim"
+            title="Estimated 5h-window usage from transcripts (current block vs largest window so far). Live plan limits unavailable."
+          >
+            · ~{estSessionPct}% session
+          </span>
+        ) : null}
         <span className="usage-chevron">{open ? '▾' : '▴'}</span>
         {runOut && (
           <span className={`usage-runout${runOut.warn ? ' usage-warn' : ''}`}>{runOut.text}</span>
