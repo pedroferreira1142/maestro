@@ -13,6 +13,7 @@ import { FileExplorer } from './components/FileExplorer'
 import { GlobalSearchDialog } from './components/GlobalSearchDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
+import { RepoStatusOverview } from './components/RepoStatusOverview'
 import { SentinelDialog } from './components/SentinelDialog'
 import { WorktreeTaskDialog } from './components/WorktreeTaskDialog'
 import { SessionSidebar } from './components/SessionSidebar'
@@ -48,6 +49,7 @@ export default function App(): JSX.Element {
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const broadcastOpen = useStore((s) => s.broadcastOpen)
+  const repoOverviewOpen = useStore((s) => s.repoOverviewOpen)
   const view = useStore((s) => s.view)
   const notice = useStore((s) => s.notice)
 
@@ -212,6 +214,7 @@ export default function App(): JSX.Element {
       {globalSearchOpen && <GlobalSearchDialog />}
       {paletteOpen && <CommandPalette />}
       {broadcastOpen && <BroadcastDialog />}
+      {repoOverviewOpen && <RepoStatusOverview />}
       {notice && <div className="app-notice">{notice}</div>}
     </div>
   )

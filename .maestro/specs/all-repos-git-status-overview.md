@@ -1,0 +1,14 @@
+# All-Repos Git Status Overview
+
+Add a single roll-up view that aggregates git working-tree state across every open session at once, so the user can see which of their many repos have uncommitted or unpushed work without clicking through each session. Introduce a new renderer component (e.g. src/renderer/src/components/RepoStatusOverview.tsx) rendered as a modal/dialog, opened from a new command-palette entry in src/renderer/src/components/CommandPalette.tsx (the existing `{title, items:[{key,label,sub,run}]}` Section pattern) and wired into the dialog mount in src/renderer/src/App.tsx with open/close state in src/renderer/src/store.ts. It reuses the existing read-only window.api.gitStatus(sessionId) IPC (GitService.gitStatus in src/main/GitService.ts, which already returns isRepo, branch, upstream, ahead, behind, staged, unstaged, untracked) — no new IPC or main-process git method is required — and the existing GitStatus type from src/shared/types.ts. Each row click jumps to that session via the store's setActive(id). No write-side git is added; the feature is strictly observational.
+
+## Specs
+
+- [ ] Opening the command palette (Ctrl+K) shows a new always-available command entry (e.g. 'Repo status overview…') that, when run, opens the overview dialog and closes the palette.
+- [ ] The overview displays one row per open session whose folder is a git repository, each row showing the session/repo name, its current branch, its staged/unstaged/untracked file counts, and its ahead/behind-upstream commit counts — values taken from window.api.gitStatus for that session.
+- [ ] Sessions whose folder is not a git repository (gitStatus.isRepo === false) are not shown as clean repos; they are either omitted or grouped separately under a clearly-labeled 'not a git repository' heading, never rendered with all-zero counts that read as 'clean'.
+- [ ] Rows that have uncommitted changes (staged + unstaged + untracked > 0) or unpushed commits (ahead > 0) are visually flagged and sorted ahead of rows that are fully clean and in sync, so repos needing attention appear at the top.
+- [ ] Clicking a row activates that session (store setActive) and closes the overview, leaving the user on the selected repo's session.
+- [ ] When the overview opens it queries every session's git status concurrently and shows a loading indicator until the results resolve, without freezing the rest of the UI; sessions whose status query fails are shown in an error/unknown state rather than crashing the view.
+- [ ] The overview provides a refresh control that re-queries every repo's git status in place (without closing and reopening the dialog) and updates the rows.
+- [ ] Worktree/parallel-task sessions are included in the overview and labeled with their branch relationship (e.g. 'branch → baseBranch'), so a task repo with uncommitted or unmerged work also surfaces in the roll-up.
