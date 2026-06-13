@@ -687,10 +687,10 @@ export class SessionManager {
 
   /**
    * (Re)start the auto-complete idle countdown for a worktree task whose claude
-   * just went idle. Only arms once the task's claude has actually worked (so the
-   * boot-time idle never counts), and never while a prompt queue is still
-   * draining or an action is already in flight / done. The fire handler
-   * re-checks everything, so a terminal that wakes mid-countdown is safe.
+   * just settled (done/idle). Only arms once the task's claude has actually
+   * worked (so the boot-time settle never counts), and never while a prompt
+   * queue is still draining or an action is already in flight / done. The fire
+   * handler re-checks everything, so a terminal that wakes mid-countdown is safe.
    */
   private scheduleAutoComplete(sessionId: string): void {
     const config = this.getConfig(sessionId)
@@ -732,7 +732,11 @@ export class SessionManager {
 
     const terminal = this.claudeTargetTerminal(config)
     const pty = terminal ? this.ptys.get(terminal.id) : null
-    if (!pty?.alive || pty.detector.current !== 'idle') return // woke up; wait for next idle
+    // A claude terminal settles to 'done' when it finishes a turn and only
+    // reaches 'idle' after the user types — so 'done' is the real "finished"
+    // signal here (same as queue dispatch). Bail if it woke back up.
+    const settled = pty?.detector.current === 'done' || pty?.detector.current === 'idle'
+    if (!pty?.alive || !settled) return // woke up; wait until it settles again
 
     // Only act when there's actually work to land (committed or uncommitted).
     const dirty = (await Git.dirtyCount(config.folder)) ?? 0
@@ -1325,7 +1329,10 @@ export class SessionManager {
     // precedes the initial prompt never triggers completion.
     if (config.worktree?.autoComplete) {
       if (status === 'working') this.worktreeWorked.add(config.id)
-      if (status === 'idle') this.scheduleAutoComplete(config.id)
+      // Ride both 'done' and 'idle': a claude terminal settles to 'done' when
+      // it finishes a turn and only reaches 'idle' once the user types, so
+      // gating on 'idle' alone meant auto-merge never fired unattended.
+      if (status === 'done' || status === 'idle') this.scheduleAutoComplete(config.id)
       else this.clearAutoCompleteTimer(config.id)
     }
 
