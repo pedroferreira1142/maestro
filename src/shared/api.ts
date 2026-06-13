@@ -7,6 +7,7 @@ import type {
   ConductorImage,
   ConductorMessage,
   ConductorTaskOptions,
+  ConversationSummary,
   DirEntry,
   FactoryArtifactKind,
   FactoryAudit,
@@ -389,6 +390,13 @@ export interface Api {
    * failed request) — the widget then shows only its transcript-based figures.
    */
   getUsageLimits(): Promise<UsageLimits | null>
+
+  /**
+   * Prior Claude Code conversations for a repo folder (read from
+   * `~/.claude/projects/<encoded>`), newest first, for the resume picker.
+   * Returns [] when the folder has no transcripts.
+   */
+  listConversations(folder: string): Promise<ConversationSummary[]>
 
   // custom app background image
   /** Pick an image file and store it as the app background; returns its data URL (null = cancelled). */

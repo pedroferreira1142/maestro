@@ -235,6 +235,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
   const openEnvEditor = useStore((s) => s.openEnvEditor)
   const openConductorForSession = useStore((s) => s.openConductorForSession)
+  const openResumePicker = useStore((s) => s.openResumePicker)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
   const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
@@ -386,6 +387,14 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
               }}
             >
               Ask Maestro about this session
+            </button>
+            <button
+              onClick={() => {
+                setMenu(null)
+                openResumePicker(id)
+              }}
+            >
+              Resume a different conversation
             </button>
             <button
               onClick={() => {

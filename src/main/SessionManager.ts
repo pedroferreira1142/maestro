@@ -253,14 +253,17 @@ export class SessionManager {
       claudeArgs: [],
       startMode: 'continue'
     }
+    // A caller (e.g. the resume picker) may supply its own terminals — e.g. a
+    // claude terminal carrying `--resume <id>`; fall back to one default claude.
+    const terminals = opts?.terminals ?? [claudeTerminal]
     const config: SessionConfig = {
       id: randomUUID(),
       name: opts?.name ?? basename(folder) ?? folder,
       folder,
       color: opts?.color ?? null,
       order: Math.max(0, ...this.state.sessions.map((s) => s.order + 1)),
-      terminals: opts?.terminals ?? [claudeTerminal],
-      activeTerminalId: claudeTerminal.id,
+      terminals,
+      activeTerminalId: terminals[0]?.id ?? null,
       expandedPaths: [],
       categoryId: opts?.categoryId ?? null
     }

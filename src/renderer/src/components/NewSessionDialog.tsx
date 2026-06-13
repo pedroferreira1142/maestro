@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import { ConversationList } from './ResumePicker'
 
 const COLORS = ['#d97757', '#3b82f6', '#a855f7', '#22c55e', '#f59e0b', '#e5484d']
 
@@ -14,9 +15,16 @@ export function NewSessionDialog(): JSX.Element {
   const [name, setName] = useState(pending.defaultName)
   const [color, setColor] = useState<string | null>(null)
   const [categoryId, setCategoryId] = useState<string | null>(pending.suggestedCategoryId)
+  // null = start a fresh session (the default); else resume this conversation.
+  const [resumeId, setResumeId] = useState<string | null>(null)
 
   const submit = (): void => {
-    void confirm({ name: name.trim() || pending.defaultName, color, categoryId })
+    void confirm({
+      name: name.trim() || pending.defaultName,
+      color,
+      categoryId,
+      resumeConversationId: resumeId
+    })
   }
 
   return (
@@ -79,12 +87,25 @@ export function NewSessionDialog(): JSX.Element {
           </div>
         </div>
 
+        <div className="field">
+          <span>Conversation</span>
+          <button
+            type="button"
+            className={`conv-item conv-fresh${resumeId === null ? ' sel' : ''}`}
+            onClick={() => setResumeId(null)}
+          >
+            <span className="conv-preview">Start a fresh conversation</span>
+            <span className="conv-meta">No resume flag — claude starts clean</span>
+          </button>
+          <ConversationList folder={pending.folder} selectedId={resumeId} onPick={setResumeId} />
+        </div>
+
         <div className="modal-actions">
           <button className="btn" onClick={cancel}>
             Cancel
           </button>
           <button className="btn primary" onClick={submit}>
-            Create
+            {resumeId ? 'Resume' : 'Create'}
           </button>
         </div>
       </div>

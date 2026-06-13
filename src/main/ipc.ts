@@ -30,6 +30,7 @@ import { AgentRegistryService } from './AgentRegistryService'
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { ConductorService } from './ConductorService'
+import { listConversations } from './ConversationsService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
@@ -410,6 +411,9 @@ export function registerIpc(
   // Subscription plan limits (the figures Claude Code's `/usage` shows).
   const usageLimits = new UsageLimitsService()
   ipcMain.handle('usage:limits', () => usageLimits.limits())
+
+  // --- conversations (prior transcripts for the resume picker) ---
+  ipcMain.handle('conversations:list', (_e, folder: string) => listConversations(folder))
 
   // --- transcript export (save dialog + file write, on the renderer's behalf) ---
   ipcMain.handle(
