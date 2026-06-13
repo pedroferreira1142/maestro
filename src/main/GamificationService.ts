@@ -12,12 +12,16 @@ import {
   pickDailyQuests,
   prevDayKey,
   questDef,
+  TOKENS_PER_XP,
   xpForEvent
 } from '../shared/gamification'
 import { GamificationStore } from './GamificationStore'
 
 /** Flat XP bonus for unlocking an achievement. */
 const ACHIEVEMENT_XP = 25
+
+/** How often to reconcile burned tokens into XP (cheap: UsageService is cached). */
+const TOKEN_POLL_MS = 60_000
 
 /**
  * Tracks and persists gamification progress. Services push a `GameEvent` here
@@ -30,9 +34,25 @@ const ACHIEVEMENT_XP = 25
 export class GamificationService {
   private store = new GamificationStore()
   private state: GameState
+  private tokenTimer: NodeJS.Timeout | null = null
 
-  constructor(private getWin: () => BrowserWindow | null) {
+  /**
+   * @param getUsageTokens returns the lifetime input+output token total (from
+   *   UsageService). Polled to award XP for tokens burned since the last check.
+   */
+  constructor(
+    private getWin: () => BrowserWindow | null,
+    private getUsageTokens?: () => number
+  ) {
     this.state = this.store.load()
+  }
+
+  /** Begin polling burned tokens (baselined on the first tick, so historical
+   *  usage is never retroactively dumped into XP). */
+  start(): void {
+    if (this.tokenTimer || !this.getUsageTokens) return
+    this.pollTokenBurn()
+    this.tokenTimer = setInterval(() => this.pollTokenBurn(), TOKEN_POLL_MS)
   }
 
   /** GameState + derived level fields (for the initial renderer fetch). */
@@ -41,7 +61,41 @@ export class GamificationService {
   }
 
   dispose(): void {
+    if (this.tokenTimer) {
+      clearInterval(this.tokenTimer)
+      this.tokenTimer = null
+    }
     this.store.saveNow()
+  }
+
+  /**
+   * Reconcile burned tokens into XP. The first observation only records the
+   * baseline (no award). Afterward, each whole `TOKENS_PER_XP` of new input+
+   * output tokens grants 1 XP via a `tokens.burn` event; the sub-unit remainder
+   * is carried (the baseline advances only by tokens actually converted), so
+   * even light usage eventually counts. A drop in the total (pruned transcripts)
+   * silently re-baselines.
+   */
+  private pollTokenBurn(): void {
+    if (!this.getUsageTokens) return
+    try {
+      const total = this.getUsageTokens()
+      if (!Number.isFinite(total) || total < 0) return
+      const seen = this.state.usageTokensSeen
+      if (seen < 0 || total < seen) {
+        this.state.usageTokensSeen = total
+        this.store.set(this.state)
+        return
+      }
+      const units = Math.floor((total - seen) / TOKENS_PER_XP)
+      if (units <= 0) return
+      const consumed = units * TOKENS_PER_XP
+      this.state.usageTokensSeen = seen + consumed
+      // award() persists (incl. the advanced baseline) and broadcasts.
+      this.award({ type: 'tokens.burn', meta: { tokens: consumed } })
+    } catch (err) {
+      console.error('Token-burn poll failed (ignored):', err)
+    }
   }
 
   /**
@@ -74,8 +128,14 @@ export class GamificationService {
         }
       }
 
-      // (2) Lifetime counter + time-of-day pseudo-counters.
-      s.counters[e.type] = (s.counters[e.type] ?? 0) + 1
+      // (2) Lifetime counter + time-of-day pseudo-counters. `tokens.burn` is a
+      // synthetic, variable-magnitude event: it accrues tokens (not a +1 tally),
+      // so token achievements read `tokensBurned` rather than a counter.
+      if (e.type === 'tokens.burn') {
+        s.tokensBurned += Math.max(0, e.meta?.tokens ?? 0)
+      } else {
+        s.counters[e.type] = (s.counters[e.type] ?? 0) + 1
+      }
       if (e.type === 'session.turn' || e.type === 'conductor.turn') {
         const hour = e.meta?.hour ?? now.getHours()
         if (hour >= 0 && hour < 5) s.nightTurns += 1
@@ -118,7 +178,8 @@ export class GamificationService {
           nightTurns: s.nightTurns,
           earlyTurns: s.earlyTurns,
           streakLongest: s.streak.longest,
-          level: levelForXp(s.xp)
+          level: levelForXp(s.xp),
+          tokensBurned: s.tokensBurned
         }
         for (const a of ACHIEVEMENTS) {
           if (s.achievements[a.id]) continue

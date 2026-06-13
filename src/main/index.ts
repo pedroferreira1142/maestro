@@ -14,6 +14,7 @@ import { Persistence } from './Persistence'
 import { SentinelService } from './Sentinels'
 import { SessionManager } from './SessionManager'
 import { TokenEfficiencyService } from './TokenEfficiency'
+import { UsageService } from './UsageService'
 
 let win: BrowserWindow | null = null
 const getWin = (): BrowserWindow | null => win
@@ -111,7 +112,11 @@ if (!gotLock) {
     const conductor = new ConductorService(persistence, sessions, features, autoExpand, getWin)
     const factory = new FactoryService(getWin, emitGame)
     const agentRegistry = new AgentRegistryService(persistence, getWin)
-    const gamification = new GamificationService(getWin)
+    const usage = new UsageService()
+    const gamification = new GamificationService(getWin, () => {
+      const t = usage.snapshot().total
+      return t.inputTokens + t.outputTokens
+    })
     gameBus.on('game', (e: GameEvent) => gamification.award(e))
     registerIpc(
       sessions,
@@ -125,6 +130,7 @@ if (!gotLock) {
       agentRegistry,
       tokenEff,
       gamification,
+      usage,
       getWin
     )
 
@@ -135,6 +141,7 @@ if (!gotLock) {
     autoExpand.start()
     tokenEff.start()
     factory.start()
+    gamification.start()
     // Feed completed Conductor turns into the Factory's self-growth detector
     // and the gamification engine.
     conductor.onTurnComplete((messages) => {

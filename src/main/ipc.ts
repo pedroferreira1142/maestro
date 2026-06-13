@@ -66,6 +66,7 @@ export function registerIpc(
   agents: AgentRegistryService,
   tokenEff: TokenEfficiencyService,
   gamification: GamificationService,
+  usage: UsageService,
   getWin: () => BrowserWindow | null
 ): void {
   const rootOf = (id: string): string => {
@@ -404,7 +405,7 @@ export function registerIpc(
   )
 
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
-  const usage = new UsageService()
+  // Shared with GamificationService (token-burn → XP), created in index.ts.
   ipcMain.handle('usage:get', () => usage.snapshot())
   // Subscription plan limits (the figures Claude Code's `/usage` shows).
   const usageLimits = new UsageLimitsService()
