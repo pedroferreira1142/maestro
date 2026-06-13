@@ -13,9 +13,13 @@ const CATEGORY_LABEL: Record<AchievementCategory, string> = {
   merges: 'Merges & PRs',
   turns: 'Turns',
   factory: 'Factory',
+  workflow: 'Workflow',
+  guardian: 'Guardians',
+  tokens: 'Token burner',
   streak: 'Streaks',
   time: 'Time of day',
-  level: 'Levels'
+  level: 'Levels',
+  mastery: 'Mastery'
 }
 
 const COUNTER_LABEL: Partial<Record<GameEventType, string>> = {
@@ -30,7 +34,9 @@ const COUNTER_LABEL: Partial<Record<GameEventType, string>> = {
   'factory.agent': 'Agents created',
   'feature.save': 'Feature specs',
   'feature.merge': 'Features shipped',
-  'action.run': 'Actions run'
+  'action.run': 'Actions run',
+  'sentinel.run': 'Sentinel runs',
+  'autoexpand.done': 'Auto-Expand runs'
 }
 
 const COUNTER_ORDER: GameEventType[] = [
@@ -45,7 +51,9 @@ const COUNTER_ORDER: GameEventType[] = [
   'feature.save',
   'feature.merge',
   'checkpoint.create',
-  'action.run'
+  'action.run',
+  'sentinel.run',
+  'autoexpand.done'
 ]
 
 function fmt(n: number): string {
@@ -205,6 +213,12 @@ export function ArcadePane(): JSX.Element {
               <div className="arcade-dim small">{COUNTER_LABEL[t]}</div>
             </div>
           ))}
+          {game.tokensBurned > 0 && (
+            <div className="arcade-stat" title="Input+output tokens converted to XP (1 XP per 1k)">
+              <div className="arcade-stat-num">{fmt(game.tokensBurned)}</div>
+              <div className="arcade-dim small">Tokens → XP</div>
+            </div>
+          )}
           {usage && (
             <>
               <div className="arcade-stat">

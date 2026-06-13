@@ -28,16 +28,28 @@ export type GameEventType =
   | 'factory.agent'
   | 'sentinel.run'
   | 'autoexpand.done'
+  /** Synthetic event: tokens burned since the last poll (meta.tokens carries the
+   *  amount). Does NOT increment `counters` — it accrues into `tokensBurned`. */
+  | 'tokens.burn'
 
 /** Fire-and-forget event pushed onto the main-process game bus. */
 export interface GameEvent {
   type: GameEventType
-  /** Optional extra signal: e.g. merge commit count, artifact name, local hour. */
-  meta?: { commits?: number; name?: string; hour?: number }
+  /** Optional extra signal: e.g. merge commit count, artifact name, local hour,
+   *  or (for `tokens.burn`) the input+output tokens consumed since last poll. */
+  meta?: { commits?: number; name?: string; hour?: number; tokens?: number }
 }
+
+/**
+ * Input+output tokens that earn 1 XP. Burning tokens is real work (and real
+ * spend), so it advances your level alongside turns and merges. Cache tokens
+ * are excluded to match the Arcade's "Tokens used" stat and keep the curve sane.
+ */
+export const TOKENS_PER_XP = 1000
 
 /** Base XP per event type (worktree.merge gets a small per-commit bonus on top). */
 export const XP_TABLE: Record<GameEventType, number> = {
+  'tokens.burn': 0, // computed from meta.tokens in xpForEvent
   'session.turn': 5,
   'conductor.turn': 5,
   'action.run': 8,
@@ -56,6 +68,9 @@ export const XP_TABLE: Record<GameEventType, number> = {
 
 /** XP for a single event, including the merge per-commit bonus (capped). */
 export function xpForEvent(e: GameEvent): number {
+  if (e.type === 'tokens.burn') {
+    return Math.max(0, Math.floor((e.meta?.tokens ?? 0) / TOKENS_PER_XP))
+  }
   let xp = XP_TABLE[e.type] ?? 0
   if (e.type === 'worktree.merge') xp += Math.min(e.meta?.commits ?? 0, 10) * 3
   return xp
@@ -120,6 +135,12 @@ export interface GameState {
   /** Turns finished at local hours 0–4 / 5–7 (time-of-day badges; pure over state). */
   nightTurns: number
   earlyTurns: number
+  /** Lifetime input+output tokens counted toward XP (monotonic; for badges/display). */
+  tokensBurned: number
+  /** Last observed usage input+output total — the baseline for token-burn deltas.
+   *  -1 means "not baselined yet": the first poll records the total without
+   *  retroactively awarding historical usage. */
+  usageTokensSeen: number
   createdAt: number
 }
 
@@ -139,6 +160,8 @@ export const DEFAULT_GAME_STATE: GameState = {
   counters: {},
   nightTurns: 0,
   earlyTurns: 0,
+  tokensBurned: 0,
+  usageTokensSeen: -1,
   createdAt: 0
 }
 
@@ -161,9 +184,13 @@ export type AchievementCategory =
   | 'merges'
   | 'turns'
   | 'factory'
+  | 'workflow'
+  | 'guardian'
+  | 'tokens'
   | 'streak'
   | 'time'
   | 'level'
+  | 'mastery'
 
 /** Read-only view the predicates evaluate (all monotonic → re-eval is safe). */
 export interface AchievementCtx {
@@ -172,6 +199,8 @@ export interface AchievementCtx {
   earlyTurns: number
   streakLongest: number
   level: number
+  /** Lifetime input+output tokens counted toward XP. */
+  tokensBurned: number
 }
 
 export interface Achievement {
@@ -209,6 +238,23 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'first-agent', title: 'Agent Architect', desc: 'Create your first agent.', icon: '🤖', category: 'factory', predicate: (x) => c(x, 'factory.agent') >= 1 },
   { id: 'toolsmith', title: 'Toolsmith', desc: 'Create 5 skills/agents.', icon: '⚒', category: 'factory', predicate: (x) => c(x, 'factory.skill') + c(x, 'factory.agent') >= 5 },
   { id: 'master-toolsmith', title: 'Master Toolsmith', desc: 'Create 20 skills/agents.', icon: '🏭', category: 'factory', predicate: (x) => c(x, 'factory.skill') + c(x, 'factory.agent') >= 20 },
+  // workflow (checkpoints, actions, feature specs, auto-expand)
+  { id: 'first-checkpoint', title: 'Safe Keeper', desc: 'Make your first checkpoint.', icon: '📍', category: 'workflow', predicate: (x) => c(x, 'checkpoint.create') >= 1 },
+  { id: 'checkpoint-25', title: 'Time Traveler', desc: 'Make 25 checkpoints.', icon: '⏳', category: 'workflow', predicate: (x) => c(x, 'checkpoint.create') >= 25 },
+  { id: 'first-action', title: 'Press Start', desc: 'Run your first reusable action.', icon: '▶️', category: 'workflow', predicate: (x) => c(x, 'action.run') >= 1 },
+  { id: 'action-50', title: 'Power User', desc: 'Run 50 actions.', icon: '⚡', category: 'workflow', predicate: (x) => c(x, 'action.run') >= 50 },
+  { id: 'first-feature-spec', title: 'Drawing Board', desc: 'Save your first feature spec.', icon: '📝', category: 'workflow', predicate: (x) => c(x, 'feature.save') >= 1 },
+  { id: 'feature-architect', title: 'Spec Architect', desc: 'Save 10 feature specs.', icon: '📐', category: 'workflow', predicate: (x) => c(x, 'feature.save') >= 10 },
+  { id: 'first-autoexpand', title: 'Brainstormer', desc: 'Finish your first Auto-Expand run.', icon: '💡', category: 'workflow', predicate: (x) => c(x, 'autoexpand.done') >= 1 },
+  { id: 'autoexpand-10', title: 'Idea Machine', desc: 'Finish 10 Auto-Expand runs.', icon: '🧠', category: 'workflow', predicate: (x) => c(x, 'autoexpand.done') >= 10 },
+  // guardian (Sentinels)
+  { id: 'first-sentinel', title: 'On Watch', desc: 'Run your first Sentinel check.', icon: '🛡', category: 'guardian', predicate: (x) => c(x, 'sentinel.run') >= 1 },
+  { id: 'sentinel-25', title: 'Vigilant', desc: 'Run 25 Sentinel checks.', icon: '👁', category: 'guardian', predicate: (x) => c(x, 'sentinel.run') >= 25 },
+  { id: 'sentinel-100', title: 'Guardian', desc: 'Run 100 Sentinel checks.', icon: '🦾', category: 'guardian', predicate: (x) => c(x, 'sentinel.run') >= 100 },
+  // tokens (burning tokens levels you up)
+  { id: 'tokens-1m', title: 'Token Tinkerer', desc: 'Burn 1M tokens.', icon: '🪙', category: 'tokens', predicate: (x) => x.tokensBurned >= 1_000_000 },
+  { id: 'tokens-10m', title: 'Token Furnace', desc: 'Burn 10M tokens.', icon: '🔥', category: 'tokens', predicate: (x) => x.tokensBurned >= 10_000_000 },
+  { id: 'tokens-100m', title: 'Token Inferno', desc: 'Burn 100M tokens.', icon: '🌋', category: 'tokens', predicate: (x) => x.tokensBurned >= 100_000_000 },
   // streak
   { id: 'streak-3', title: 'Warmed Up', desc: 'Keep a 3-day streak.', icon: '🔥', category: 'streak', predicate: (x) => x.streakLongest >= 3 },
   { id: 'streak-7', title: 'On Fire', desc: 'Keep a 7-day streak.', icon: '🔥', category: 'streak', predicate: (x) => x.streakLongest >= 7 },
@@ -218,7 +264,11 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'early-bird', title: 'Early Bird', desc: 'Finish a turn between 5 and 8am.', icon: '🌅', category: 'time', predicate: (x) => x.earlyTurns >= 1 },
   // level
   { id: 'level-10', title: 'Double Digits', desc: 'Reach level 10.', icon: '⭐', category: 'level', predicate: (x) => x.level >= 10 },
-  { id: 'level-25', title: 'Maestro Prime', desc: 'Reach level 25.', icon: '🌟', category: 'level', predicate: (x) => x.level >= 25 }
+  { id: 'level-25', title: 'Maestro Prime', desc: 'Reach level 25.', icon: '🌟', category: 'level', predicate: (x) => x.level >= 25 },
+  { id: 'level-50', title: 'Maestro Legend', desc: 'Reach level 50.', icon: '👑', category: 'level', predicate: (x) => x.level >= 50 },
+  // mastery (cross-cutting capstones)
+  { id: 'polymath', title: 'Polymath', desc: 'Use sessions, parallel tasks, the Factory, feature specs and Sentinels.', icon: '🧩', category: 'mastery', predicate: (x) => c(x, 'session.create') >= 1 && c(x, 'worktree.create') >= 1 && c(x, 'factory.skill') + c(x, 'factory.agent') >= 1 && c(x, 'feature.save') >= 1 && c(x, 'sentinel.run') >= 1 },
+  { id: 'all-rounder', title: 'All-Rounder', desc: 'Merge a worktree, ship a feature and open a PR.', icon: '🏅', category: 'mastery', predicate: (x) => c(x, 'worktree.merge') >= 1 && c(x, 'feature.merge') >= 1 && c(x, 'worktree.pr') >= 1 }
 ]
 
 // ---------------------------------------------------------------------------
@@ -244,7 +294,11 @@ export const DAILY_QUEST_POOL: QuestDef[] = [
   { id: 'q-conductor-3', title: 'Have 3 Conductor turns', target: 3, reward: 30, events: ['conductor.turn'] },
   { id: 'q-factory-1', title: 'Create a skill or agent', target: 1, reward: 75, events: ['factory.skill', 'factory.agent'] },
   { id: 'q-feature-1', title: 'Save a feature spec', target: 1, reward: 30, events: ['feature.save'] },
-  { id: 'q-pr-1', title: 'Open a pull request', target: 1, reward: 50, events: ['worktree.pr'] }
+  { id: 'q-pr-1', title: 'Open a pull request', target: 1, reward: 50, events: ['worktree.pr'] },
+  { id: 'q-action-3', title: 'Run 3 reusable actions', target: 3, reward: 30, events: ['action.run'] },
+  { id: 'q-sentinel-1', title: 'Run a Sentinel check', target: 1, reward: 25, events: ['sentinel.run'] },
+  { id: 'q-autoexpand-1', title: 'Finish an Auto-Expand run', target: 1, reward: 40, events: ['autoexpand.done'] },
+  { id: 'q-checkpoint-3', title: 'Make 3 checkpoints', target: 3, reward: 40, events: ['checkpoint.create'] }
 ]
 
 export const questDef = (id: string): QuestDef | undefined => DAILY_QUEST_POOL.find((q) => q.id === id)

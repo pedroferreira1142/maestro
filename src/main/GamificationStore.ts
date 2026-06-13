@@ -40,6 +40,10 @@ export class GamificationStore {
       }
       s.nightTurns = num(s.nightTurns, 0)
       s.earlyTurns = num(s.earlyTurns, 0)
+      s.tokensBurned = num(s.tokensBurned, 0)
+      // -1 sentinel = "not baselined": the first poll records the usage total
+      // without retroactively awarding it. A bad value falls back to -1 too.
+      s.usageTokensSeen = num(s.usageTokensSeen, -1)
       s.xp = num(s.xp, 0)
       if (!s.createdAt) s.createdAt = Date.now()
       this.state = s
