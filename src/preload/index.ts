@@ -155,6 +155,7 @@ const api: Api = {
     }
   },
   getUsage: () => ipcRenderer.invoke('usage:get'),
+  listConversations: (folder) => ipcRenderer.invoke('conversations:list', folder),
 
   pickBackgroundImage: () => ipcRenderer.invoke('background:pick'),
   getBackgroundImage: () => ipcRenderer.invoke('background:get'),

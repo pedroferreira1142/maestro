@@ -13,6 +13,7 @@ import { FileExplorer } from './components/FileExplorer'
 import { GlobalSearchDialog } from './components/GlobalSearchDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewSessionDialog } from './components/NewSessionDialog'
+import { ResumePickerDialog } from './components/ResumePicker'
 import { SentinelDialog } from './components/SentinelDialog'
 import { WorktreeTaskDialog } from './components/WorktreeTaskDialog'
 import { SessionSidebar } from './components/SessionSidebar'
@@ -36,6 +37,7 @@ export default function App(): JSX.Element {
   const epochs = useStore((s) => s.epochs)
   const settings = useStore((s) => s.settings)
   const pendingNewSession = useStore((s) => s.pendingNewSession)
+  const resumePicker = useStore((s) => s.resumePicker)
   const pendingWorktree = useStore((s) => s.pendingWorktree)
   const categoriesOpen = useStore((s) => s.categoriesOpen)
   const envEditorSessionId = useStore((s) => s.envEditorSessionId)
@@ -201,6 +203,7 @@ export default function App(): JSX.Element {
         )}
       </div>
       {pendingNewSession && <NewSessionDialog />}
+      {resumePicker && <ResumePickerDialog />}
       {pendingWorktree && <WorktreeTaskDialog />}
       {categoriesOpen && <CategoriesDialog />}
       {envEditorSessionId && <EnvVarsDialog />}

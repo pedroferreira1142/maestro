@@ -343,6 +343,22 @@ export interface AutoExpandRun {
   taskSessionId: string | null
 }
 
+/**
+ * One past Claude Code conversation for a repo folder, listed by the resume
+ * picker. The id is the transcript's filename without `.jsonl` — the value
+ * passed to `claude --resume <id>` to continue that conversation.
+ */
+export interface ConversationSummary {
+  /** Conversation id = the .jsonl filename without extension (the `--resume` arg). */
+  id: string
+  /** Most recent entry timestamp in the transcript, ms since epoch (0 if none parsed). */
+  lastActivityAt: number
+  /** Count of user/assistant entries that parsed. */
+  messageCount: number
+  /** One-line preview from the first textual user message; '' when none. */
+  preview: string
+}
+
 /** Outcome of saving an exported transcript via the native save dialog. */
 export interface TranscriptExportResult {
   /** True when the user cancelled the save dialog — nothing was written. */

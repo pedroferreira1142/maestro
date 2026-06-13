@@ -221,6 +221,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
   const mergeWorktree = useStore((s) => s.mergeWorktree)
   const removeWorktreeTask = useStore((s) => s.removeWorktreeTask)
   const openEnvEditor = useStore((s) => s.openEnvEditor)
+  const openResumePicker = useStore((s) => s.openResumePicker)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(session.config.name)
   const [queueAnchor, setQueueAnchor] = useState<DOMRect | null>(null)
@@ -354,6 +355,14 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
             style={{ left: menu.x, top: menu.y }}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              onClick={() => {
+                setMenu(null)
+                openResumePicker(id)
+              }}
+            >
+              Resume a different conversation
+            </button>
             <button
               onClick={() => {
                 setMenu(null)

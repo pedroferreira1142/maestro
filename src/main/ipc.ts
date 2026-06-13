@@ -24,6 +24,7 @@ import {
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { ConductorService } from './ConductorService'
+import { listConversations } from './ConversationsService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FeatureService } from './FeatureService'
 import { FsService, resolveSafe } from './FsService'
@@ -288,6 +289,9 @@ export function registerIpc(
   // --- usage (token cost parsed from ~/.claude/projects transcripts) ---
   const usage = new UsageService()
   ipcMain.handle('usage:get', () => usage.snapshot())
+
+  // --- conversations (prior transcripts for the resume picker) ---
+  ipcMain.handle('conversations:list', (_e, folder: string) => listConversations(folder))
 
   // --- transcript export (save dialog + file write, on the renderer's behalf) ---
   ipcMain.handle(

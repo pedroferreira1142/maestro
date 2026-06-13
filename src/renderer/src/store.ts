@@ -14,10 +14,16 @@ import type {
   SessionStatus,
   Settings,
   SkillInfo,
+  TerminalConfig,
   TerminalKind,
   WorktreeTaskState
 } from '../../shared/types'
-import { type ClaudeModelAlias, getModelAlias, setModelAlias } from '../../shared/claudeArgs'
+import {
+  type ClaudeModelAlias,
+  getModelAlias,
+  setModelAlias,
+  setResumeConversation
+} from '../../shared/claudeArgs'
 
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
 export interface AttentionEntry {
@@ -165,6 +171,11 @@ interface AppStore {
   skills: SkillInfo[]
   /** New-session dialog payload; non-null while the dialog is open. */
   pendingNewSession: PendingNewSession | null
+  /**
+   * Resume-picker payload for an existing session ('Resume a different
+   * conversation'); non-null while that picker is open.
+   */
+  resumePicker: { sessionId: string; folder: string } | null
   /** Parallel-task dialog payload; non-null while the dialog is open. */
   pendingWorktree: PendingWorktree | null
   /** Whether the category-management dialog is open. */
@@ -220,8 +231,19 @@ interface AppStore {
     name: string
     color: string | null
     categoryId: string | null
+    /** When set, the new session's claude resumes this conversation (`--resume <id>`). */
+    resumeConversationId?: string | null
   }): Promise<void>
   cancelNewSession(): void
+  /** Open the resume picker for an existing session ('Resume a different conversation'). */
+  openResumePicker(sessionId: string): void
+  closeResumePicker(): void
+  /**
+   * Resume a chosen past conversation in an existing session's claude terminal:
+   * rewrite its claudeArgs to `--resume <id>`, set startMode 'fresh' (so no
+   * `--continue` is added), and respawn it fresh on that conversation.
+   */
+  resumeConversation(sessionId: string, conversationId: string): Promise<void>
   newWorktreeTask(parentSessionId: string): Promise<void>
   confirmWorktreeTask(opts: {
     name: string
@@ -382,6 +404,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   categories: [],
   skills: [],
   pendingNewSession: null,
+  resumePicker: null,
   pendingWorktree: null,
   categoriesOpen: false,
   envEditorSessionId: null,
@@ -489,17 +512,63 @@ export const useStore = create<AppStore>()((set, get) => ({
     const pending = get().pendingNewSession
     if (!pending) return
     set({ pendingNewSession: null })
-    const info = await window.api.createSession(pending.folder, {
+    const create: Partial<SessionInfo['config']> = {
       name: opts.name,
       color: opts.color,
       categoryId: opts.categoryId
-    })
+    }
+    // Resuming a chosen conversation: hand main a claude terminal already
+    // carrying `--resume <id>` with startMode 'fresh', so it spawns on that
+    // conversation and never appends `--continue`.
+    if (opts.resumeConversationId) {
+      const terminal: TerminalConfig = {
+        id: crypto.randomUUID(),
+        kind: 'claude',
+        title: 'claude',
+        order: 0,
+        claudeArgs: setResumeConversation([], opts.resumeConversationId),
+        startMode: 'fresh'
+      }
+      create.terminals = [terminal]
+    }
+    const info = await window.api.createSession(pending.folder, create)
     await get().refresh()
     get().setActive(info.config.id)
   },
 
   cancelNewSession() {
     set({ pendingNewSession: null })
+  },
+
+  openResumePicker(sessionId) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    if (!session) return
+    set({ resumePicker: { sessionId, folder: session.config.folder } })
+  },
+
+  closeResumePicker() {
+    set({ resumePicker: null })
+  },
+
+  async resumeConversation(sessionId, conversationId) {
+    const session = get().sessions.find((s) => s.config.id === sessionId)
+    if (!session) return
+    // Target the active claude tab, else the first claude terminal.
+    const term =
+      session.terminals.find(
+        (t) => t.config.id === session.config.activeTerminalId && t.config.kind === 'claude'
+      ) ?? session.terminals.find((t) => t.config.kind === 'claude')
+    if (!term) {
+      window.alert('This session has no claude terminal to resume a conversation in.')
+      return
+    }
+    set({ resumePicker: null })
+    const claudeArgs = setResumeConversation(term.config.claudeArgs, conversationId)
+    // startMode 'fresh' so the respawn carries `--resume <id>` alone (no --continue).
+    await window.api.updateTerminal(term.config.id, { claudeArgs, startMode: 'fresh' })
+    await get().restartTerminal(term.config.id, 'fresh')
+    get().setActive(sessionId)
+    get().setActiveTab(sessionId, term.config.id)
   },
 
   async newWorktreeTask(parentSessionId) {

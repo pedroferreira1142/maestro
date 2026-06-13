@@ -2,6 +2,7 @@ import type {
   AttachmentInfo,
   AutoExpandRun,
   ConductorMessage,
+  ConversationSummary,
   DirEntry,
   Feature,
   FileContent,
@@ -212,6 +213,13 @@ export interface Api {
   pathForFile(file: File): string
   // usage (token cost aggregated from Claude Code transcripts)
   getUsage(): Promise<UsageSnapshot>
+
+  /**
+   * Prior Claude Code conversations for a repo folder (read from
+   * `~/.claude/projects/<encoded>`), newest first, for the resume picker.
+   * Returns [] when the folder has no transcripts.
+   */
+  listConversations(folder: string): Promise<ConversationSummary[]>
 
   // custom app background image
   /** Pick an image file and store it as the app background; returns its data URL (null = cancelled). */

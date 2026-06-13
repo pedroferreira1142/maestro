@@ -1,6 +1,6 @@
 /**
- * Pure parsing/rewriting of the `--model` flag inside a terminal's
- * `claudeArgs` array. Both the inline (`--model opus`) and joined
+ * Pure parsing/rewriting of flags inside a terminal's `claudeArgs` array
+ * (`--model`, `--resume`). Both the inline (`--model opus`) and joined
  * (`--model=opus`) forms are understood; every other argument is left
  * untouched and in its original order.
  */
@@ -59,5 +59,44 @@ export function setModelAlias(
     out.push(tok)
   }
   if (alias) out.push('--model', alias)
+  return out
+}
+
+const RESUME_EQ = '--resume='
+
+/**
+ * The conversation id of the first `--resume` flag in `args`, or null when none
+ * is present. Handles `--resume <id>` and `--resume=<id>`.
+ */
+export function getResumeConversation(args: string[] | undefined): string | null {
+  const a = args ?? []
+  for (let i = 0; i < a.length; i++) {
+    const tok = a[i]
+    if (tok === '--resume') return a[i + 1] ?? null
+    if (tok.startsWith(RESUME_EQ)) return tok.slice(RESUME_EQ.length)
+  }
+  return null
+}
+
+/**
+ * Return a copy of `args` whose `--resume` is exactly `id` (one inline
+ * `--resume <id>` pair appended), or with every `--resume` flag removed when
+ * `id` is null. All other arguments keep their value and relative order. Pairs
+ * with startMode 'fresh' so PtySession resumes the chosen conversation without
+ * also appending `--continue`.
+ */
+export function setResumeConversation(args: string[] | undefined, id: string | null): string[] {
+  const out: string[] = []
+  const a = args ?? []
+  for (let i = 0; i < a.length; i++) {
+    const tok = a[i]
+    if (tok === '--resume') {
+      i++ // drop the flag and its value
+      continue
+    }
+    if (tok.startsWith(RESUME_EQ)) continue // drop the joined form
+    out.push(tok)
+  }
+  if (id) out.push('--resume', id)
   return out
 }
