@@ -1163,7 +1163,12 @@ export interface FactoryCandidate {
   keywords: string[]
   /** Why it is worth building, per the scan agent. */
   rationale: string
-  /** Name of an existing registered artifact this should ENRICH, or null to create new. */
+  /**
+   * Name of an existing registered artifact this is meant to ENRICH (passed to
+   * the author as guidance), or null to create new. NOTE: the new file is still
+   * written under this candidate's own slug, so it only updates that artifact in
+   * place when the slug matches — otherwise `existing` is purely prompt-steering.
+   */
   existing: string | null
   status: FactoryCandidateStatus
   /** Set once authored: where the file was written. */
@@ -1302,7 +1307,12 @@ export interface FactorySuggestion {
   context: string
   topics: string[]
   keywords: string[]
-  /** Name of an existing registered artifact this should ENRICH, or null to create new. */
+  /**
+   * Name of an existing registered artifact this is meant to ENRICH (passed to
+   * the author as guidance), or null to create new. NOTE: the new file is still
+   * written under this suggestion's own slug, so it only updates that artifact in
+   * place when the slug matches — otherwise `existing` is purely prompt-steering.
+   */
   existing: string | null
   /** Detector confidence 0..1. */
   confidence: number
@@ -1314,21 +1324,6 @@ export interface FactorySuggestion {
   result?: string
   createdAt: number
   updatedAt: number
-}
-
-/** Cheap inventory snapshot from the free periodic refresh (no tokens). */
-export interface FactoryInventory {
-  /** Skills/agents present on disk under ~/.claude. */
-  installedCount: number
-  /** Artifacts tracked in the registry. */
-  registeredCount: number
-  /** Connected MCP source count (cached discovery). */
-  sourceCount: number
-  /** Registry entries whose file is gone. */
-  missingFiles: number
-  /** On-disk artifacts the registry doesn't track yet. */
-  unregistered: number
-  refreshedAt: number
 }
 
 /** Which Factory pane tab is shown (shared so the store can deep-link to one). */

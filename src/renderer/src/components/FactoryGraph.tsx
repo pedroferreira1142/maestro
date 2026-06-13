@@ -111,6 +111,13 @@ export function FactoryGraph({
   const alphaRef = useRef(1)
   /** Auto-fit once per data shape, when the layout first settles. */
   const fittedRef = useRef(false)
+  /**
+   * Set once the user pans/zooms/drag-arranges. While true, the settle-time
+   * auto-fit is suppressed so a new ghost node (which re-warms the sim) can't
+   * yank the camera away from where the user parked it. The ⤢ Fit button
+   * re-arms auto-follow by clearing it.
+   */
+  const userInteractedRef = useRef(false)
 
   // Track the container size so the SVG always fills the tab.
   useEffect(() => {
@@ -225,18 +232,23 @@ export function FactoryGraph({
         for (const [, p] of nodes) {
           p.vx += (size.w / 2 - p.x) * 0.0035 * alpha
           p.vy += (size.h / 2 - p.y) * 0.0035 * alpha
+          p.vx *= 0.85
+          p.vy *= 0.85
           if (!p.dragging) {
             p.x += p.vx
             p.y += p.vy
+            // Keep simulated nodes inside a container-sized world box. A node the
+            // user is actively dragging is exempt: it follows the pointer to any
+            // world position (the fit/pan transform handles where that shows).
+            p.x = Math.min(size.w - 16, Math.max(16, p.x))
+            p.y = Math.min(size.h - 16, Math.max(16, p.y))
           }
-          p.vx *= 0.85
-          p.vy *= 0.85
-          p.x = Math.min(size.w - 16, Math.max(16, p.x))
-          p.y = Math.min(size.h - 16, Math.max(16, p.y))
         }
         alphaRef.current = alpha * 0.985
-        // Once the layout has settled, frame it once.
-        if (!fittedRef.current && alphaRef.current <= 0.05) {
+        // Once the layout has settled, frame it once — but never steal a view the
+        // user has manually positioned (a re-warm from a new ghost node would
+        // otherwise re-fit and jump the camera).
+        if (!fittedRef.current && !userInteractedRef.current && alphaRef.current <= 0.05) {
           fittedRef.current = true
           fit()
         }
@@ -275,7 +287,10 @@ export function FactoryGraph({
     if (!drag) return
     const node = nodesRef.current.get(drag.name)
     if (!node) return
-    if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 4) drag.moved = true
+    if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 4) {
+      drag.moved = true
+      userInteractedRef.current = true
+    }
     const pt = toWorld(e.clientX, e.clientY)
     node.x = pt.x
     node.y = pt.y
@@ -304,6 +319,7 @@ export function FactoryGraph({
   const onBgMove = (e: React.PointerEvent<SVGRectElement>): void => {
     const pan = panRef.current
     if (!pan) return
+    userInteractedRef.current = true
     setView((v) => ({ ...v, x: pan.ox + (e.clientX - pan.startX), y: pan.oy + (e.clientY - pan.startY) }))
   }
   const onBgUp = (e: React.PointerEvent<SVGRectElement>): void => {
@@ -316,33 +332,44 @@ export function FactoryGraph({
   }
 
   // ---- wheel zoom (around the pointer) ----
-  const onWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
-    e.preventDefault()
-    const rect = containerRef.current?.getBoundingClientRect()
-    const sx = e.clientX - (rect?.left ?? 0)
-    const sy = e.clientY - (rect?.top ?? 0)
-    setView((v) => {
-      const k = clamp(v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12), MIN_K, MAX_K)
-      const wx = (sx - v.x) / v.k
-      const wy = (sy - v.y) / v.k
-      return { k, x: sx - wx * k, y: sy - wy * k }
-    })
-  }
-
-  if (artifacts.length === 0) {
-    return (
-      <div className="factory-graph-empty">
-        Nothing to map yet — generated artifacts, installed agents and pending suggestions appear
-        here as a graph.
-      </div>
-    )
-  }
+  // React's onWheel binds a PASSIVE listener, so preventDefault() there is a
+  // no-op (and warns). Bind a native non-passive listener so the page doesn't
+  // scroll while zooming the graph.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e: WheelEvent): void => {
+      e.preventDefault()
+      userInteractedRef.current = true
+      const rect = el.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      setView((v) => {
+        const k = clamp(v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12), MIN_K, MAX_K)
+        const wx = (sx - v.x) / v.k
+        const wy = (sy - v.y) / v.k
+        return { k, x: sx - wx * k, y: sy - wy * k }
+      })
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
 
   const hoverSet = hover ? new Set([hover, ...(neighbours.get(hover) ?? [])]) : null
 
+  // The ref'd container always mounts (even when empty) so the wheel + resize
+  // effects always find a real element to bind to — otherwise scroll-to-zoom
+  // silently breaks on an empty→populated transition.
   return (
-    <div className="factory-graph" ref={containerRef} onWheel={onWheel}>
-      <svg width={size.w} height={size.h}>
+    <div className="factory-graph" ref={containerRef}>
+      {artifacts.length === 0 ? (
+        <div className="factory-graph-empty">
+          Nothing to map yet — generated artifacts, installed agents and pending suggestions appear
+          here as a graph.
+        </div>
+      ) : (
+        <>
+          <svg width={size.w} height={size.h}>
         {/* Background pan surface (behind the transformed content). */}
         <rect
           x={0}
@@ -397,13 +424,35 @@ export function FactoryGraph({
         </g>
       </svg>
       <div className="factory-graph-toolbar">
-        <button className="btn ghost" title="Zoom in" onClick={() => setView((v) => ({ ...v, k: clamp(v.k * 1.2, MIN_K, MAX_K) }))}>
+        <button
+          className="btn ghost"
+          title="Zoom in"
+          onClick={() => {
+            userInteractedRef.current = true
+            setView((v) => ({ ...v, k: clamp(v.k * 1.2, MIN_K, MAX_K) }))
+          }}
+        >
           ＋
         </button>
-        <button className="btn ghost" title="Zoom out" onClick={() => setView((v) => ({ ...v, k: clamp(v.k / 1.2, MIN_K, MAX_K) }))}>
+        <button
+          className="btn ghost"
+          title="Zoom out"
+          onClick={() => {
+            userInteractedRef.current = true
+            setView((v) => ({ ...v, k: clamp(v.k / 1.2, MIN_K, MAX_K) }))
+          }}
+        >
           －
         </button>
-        <button className="btn ghost" title="Fit to view" onClick={fit}>
+        <button
+          className="btn ghost"
+          title="Fit to view"
+          onClick={() => {
+            // Explicit fit re-arms auto-follow so the graph tracks future growth again.
+            userInteractedRef.current = false
+            fit()
+          }}
+        >
           ⤢
         </button>
       </div>
@@ -411,12 +460,14 @@ export function FactoryGraph({
         {counts.skills} skills · {counts.agents} agents
         {counts.ghosts > 0 && ` · ${counts.ghosts} suggested`} · {counts.links} links
       </div>
-      <div className="factory-graph-legend">
-        <span className="kind-chip kind-skill">skill</span>
-        <span className="kind-chip kind-agent">agent</span>
-        {counts.ghosts > 0 && <span className="kind-chip kind-suggestion">suggested</span>}
-        <span className="factory-graph-hint">scroll to zoom · drag to arrange · click to open</span>
-      </div>
+          <div className="factory-graph-legend">
+            <span className="kind-chip kind-skill">skill</span>
+            <span className="kind-chip kind-agent">agent</span>
+            {counts.ghosts > 0 && <span className="kind-chip kind-suggestion">suggested</span>}
+            <span className="factory-graph-hint">scroll to zoom · drag to arrange · click to open</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }

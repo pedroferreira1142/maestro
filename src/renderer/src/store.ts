@@ -241,6 +241,9 @@ interface AppStore {
   factoryTab: FactoryTab | null
   /** The latest just-arrived self-growth suggestion, shown as a banner (auto-clears). */
   suggestionBanner: FactorySuggestion | null
+  /** True while the factory runs any headless work (scan/author/judge/discovery);
+   *  mirrors the main-process lock so the UI can disable actions that would no-op. */
+  factoryBusy: boolean
   /** Installed agents merged with the external agent-factory registry (Agents tab). */
   agentsSnapshot: AgentsSnapshot | null
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
@@ -427,6 +430,8 @@ interface AppStore {
   showSuggestionBanner(suggestion: FactorySuggestion): void
   /** Clear the suggestion banner. */
   dismissSuggestionBanner(): void
+  /** Mirror the main-process headless lock (pushed from main on every flip). */
+  setFactoryBusy(busy: boolean): void
   /** Load the factory registry + runs (and kick off source discovery). */
   loadFactory(): Promise<void>
   /** (Re)discover the connected MCP sources. */
@@ -532,6 +537,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   factoryAudit: null,
   factoryTab: null,
   suggestionBanner: null,
+  factoryBusy: false,
   agentsSnapshot: null,
   notice: null,
   worktreeStates: {},
@@ -1570,13 +1576,18 @@ export const useStore = create<AppStore>()((set, get) => ({
   },
 
   async loadFactory() {
-    const [factoryState, factoryRuns] = await Promise.all([
+    const [factoryState, factoryRuns, factoryBusy] = await Promise.all([
       window.api.getFactoryState(),
-      window.api.listFactoryRuns()
+      window.api.listFactoryRuns(),
+      window.api.getFactoryBusy()
     ])
-    set({ factoryState, factoryRuns })
+    set({ factoryState, factoryRuns, factoryBusy })
     void get().loadFactoryAudit()
     void get().loadAgents()
+  },
+
+  setFactoryBusy(busy) {
+    set({ factoryBusy: busy })
   },
 
   async loadFactorySources(refresh = false) {

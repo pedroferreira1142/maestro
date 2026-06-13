@@ -53,6 +53,16 @@ export class FactoryStore {
         raw?.growth && typeof raw.growth === 'object'
           ? { ...EMPTY_GROWTH, ...(raw.growth as Partial<FactoryGrowthMeta>) }
           : { ...EMPTY_GROWTH }
+      // A spread lets an explicit `lastScannedAt: null` (corrupted file) override
+      // the default; coerce non-objects back to {} so the auto-propose comparator
+      // can't throw on a null receiver.
+      if (
+        !this.growth.lastScannedAt ||
+        typeof this.growth.lastScannedAt !== 'object' ||
+        Array.isArray(this.growth.lastScannedAt)
+      ) {
+        this.growth.lastScannedAt = {}
+      }
     } catch {
       this.state = { ...EMPTY }
       this.runs = []

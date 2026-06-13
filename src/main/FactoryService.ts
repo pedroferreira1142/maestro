@@ -8,7 +8,6 @@ import {
   FactoryArtifactKind,
   FactoryAudit,
   FactoryCandidate,
-  FactoryInventory,
   FactoryLesson,
   FactoryRun,
   FactorySource,
@@ -43,10 +42,11 @@ const MAX_LESSONS = 40
 // ---- self-growth (suggestions: conversation detector + background timer) ----
 /** Coarse scheduler tick. */
 const TICK_MS = 60_000
-/** Cheap, token-free inventory refresh cadence. */
-const INVENTORY_INTERVAL_MS = 5 * 60_000
 /** Token-spending auto-propose cadence (scans ONE MCP source per pass). */
 const AUTO_PROPOSE_INTERVAL_MS = 6 * 60 * 60_000
+/** Quiet window after launch before any token-spending auto-propose may run, so
+ *  reopening the app after a long gap never fires a headless scan right at boot. */
+const AUTO_PROPOSE_BOOT_GRACE_MS = 10 * 60_000
 /** Collapse a burst of conductor turns into one judge call. */
 const DETECT_DEBOUNCE_MS = 4_000
 /** A conversation judge is short (no source tools). */
@@ -98,18 +98,29 @@ export class FactoryService {
   private state: FactoryState
   private runs: FactoryRun[] = []
   private sources: FactorySource[] | null = null
-  /** The in-flight agent child, so dispose()/cancel() can kill it. */
+  /** The in-flight cancellable agent child (scan/author/judge), so dispose()/cancel() can kill it. */
   private inFlight: ChildProcess | null = null
+  /** Source-discovery child — a SEPARATE slot from `inFlight` so discovery (which
+   *  can run while `busy` is false) never nulls a live scan/author/judge child. */
+  private discoverChild: ChildProcess | null = null
+  /** In-flight discovery promise; concurrent callers join it instead of spawning
+   *  a second discovery agent (the single-headless-child invariant). */
+  private discovering: Promise<FactorySource[]> | null = null
   private busy = false
+  /** Resolves when the current heavy op (scan/author/judge) releases the lock —
+   *  the public listSources() awaits it before starting a discovery agent so the
+   *  two never run concurrently. Null while idle. */
+  private busyPromise: Promise<void> | null = null
+  private busyResolve: (() => void) | null = null
   /** Set by cancel(); the in-flight scan/author reports 'cancelled' instead of 'error'. */
   private cancelRequested = false
   /** Self-growth background timer; null until start(). */
   private timer: NodeJS.Timeout | null = null
   /** Debounce timer for the conversation detector. */
   private detectTimer: NodeJS.Timeout | null = null
-  private lastInventoryAt = 0
-  /** Last cheap inventory snapshot (broadcast on change). */
-  private inventory: FactoryInventory | null = null
+  /** Claimed synchronously while an auto-propose pass is dispatched (incl. its
+   *  pre-scan discovery await), so the 60s timer can't double-dispatch it. */
+  private autoProposing = false
 
   constructor(private getWin: () => BrowserWindow | null) {
     this.state = this.store.load()
@@ -141,98 +152,79 @@ export class FactoryService {
     } catch {
       // already gone
     }
+    try {
+      this.discoverChild?.kill()
+    } catch {
+      // already gone
+    }
     this.inFlight = null
+    this.discoverChild = null
     this.store.saveNow()
   }
 
   // ---------- self-growth: background timer ----------
 
-  /** Begin the self-growth loop: cheap inventory refresh + infrequent auto-propose. */
+  /** Begin the self-growth loop: an infrequent token-spending auto-propose pass. */
   start(): void {
     if (this.timer) return
+    // Defer the first auto-propose to at least AUTO_PROPOSE_BOOT_GRACE_MS after
+    // launch. `lastAutoProposeAt` defaults to 0, so without this a launch after
+    // any >6h gap (incl. a fresh install) would fire a headless scan ~60s in,
+    // with no user action. Clamp the baseline forward so the gate can't open
+    // until the grace window has elapsed, while preserving a recent pass time.
+    const g = this.store.loadGrowth()
+    const earliest = Date.now() - AUTO_PROPOSE_INTERVAL_MS + AUTO_PROPOSE_BOOT_GRACE_MS
+    if (g.lastAutoProposeAt < earliest) {
+      this.store.setGrowth({ ...g, lastAutoProposeAt: earliest })
+    }
     this.timer = setInterval(() => this.tick(), TICK_MS)
-    // The first inventory refresh is free (filesystem only); auto-propose never runs on boot.
-    this.refreshInventory()
   }
 
   private tick(): void {
-    const now = Date.now()
-    if (now - this.lastInventoryAt >= INVENTORY_INTERVAL_MS) this.refreshInventory()
-    if (this.busy) return
+    if (this.busy || this.autoProposing) return
     const g = this.store.loadGrowth()
-    if (now - g.lastAutoProposeAt >= AUTO_PROPOSE_INTERVAL_MS) {
+    if (Date.now() - g.lastAutoProposeAt >= AUTO_PROPOSE_INTERVAL_MS) {
       void this.autoProposePass().catch(() => {})
-    }
-  }
-
-  /** Last cheap inventory snapshot (installed/registered counts + drift). */
-  getInventory(): FactoryInventory | null {
-    return this.inventory
-  }
-
-  /**
-   * Token-free reconcile of the local picture: how many skills/agents are on
-   * disk vs registered, and registry↔disk drift. Broadcasts only on change.
-   * Never triggers MCP discovery (uses whatever sources are already cached).
-   */
-  private refreshInventory(): void {
-    this.lastInventoryAt = Date.now()
-    try {
-      const installed = listInstalled()
-      const audit = this.audit()
-      const inv: FactoryInventory = {
-        installedCount: installed.length,
-        registeredCount: this.state.artifacts.length,
-        sourceCount: this.sources?.length ?? 0,
-        missingFiles: audit.missingFileIds.length,
-        unregistered: audit.unregistered.length,
-        refreshedAt: Date.now()
-      }
-      const prev = this.inventory
-      const changed =
-        !prev ||
-        prev.installedCount !== inv.installedCount ||
-        prev.registeredCount !== inv.registeredCount ||
-        prev.sourceCount !== inv.sourceCount ||
-        prev.missingFiles !== inv.missingFiles ||
-        prev.unregistered !== inv.unregistered
-      this.inventory = inv
-      if (changed) this.getWin()?.webContents.send('factory:inventory', inv)
-    } catch {
-      // best-effort
     }
   }
 
   /**
    * Infrequent token-spending pass: scan the connected MCP source that's gone
-   * longest without a scan (round-robin), then convert its proposed candidates
-   * into suggestions (never auto-installed). Reuses scan() + its busy guard.
+   * longest without a scan (round-robin), then convert that scan's proposed
+   * candidates into suggestions (never auto-installed). A dedicated
+   * `autoProposing` guard (claimed synchronously) prevents a second tick from
+   * dispatching while this one is parked in discovery; the budget/rotation slot
+   * is only consumed when a scan actually runs, and we harvest exactly the run
+   * this pass produced (never a stale older one).
    */
   private async autoProposePass(): Promise<void> {
-    if (this.busy) return
-    let sources: FactorySource[]
+    if (this.busy || this.autoProposing) return
+    this.autoProposing = true
     try {
-      sources = await this.listSources()
-    } catch {
-      return
+      const sources = await this.listSources().catch(() => [] as FactorySource[])
+      if (sources.length === 0) return
+      const g = this.store.loadGrowth()
+      const next = [...sources].sort(
+        (a, b) => (g.lastScannedAt[a.server] ?? 0) - (g.lastScannedAt[b.server] ?? 0)
+      )[0]
+      const runId = await this.scan(
+        next.server,
+        'Automated background scan: surface only a few high-value, clearly groundable candidates.'
+      )
+      // scan() returns null when it bailed on the busy guard (no tokens spent) —
+      // only consume the rotation slot + 6h budget when a scan really ran.
+      if (!runId) return
+      const g2 = this.store.loadGrowth()
+      this.store.setGrowth({
+        ...g2,
+        lastScannedAt: { ...g2.lastScannedAt, [next.server]: Date.now() },
+        lastAutoProposeAt: Date.now()
+      })
+      const run = this.runs.find((r) => r.id === runId)
+      if (run && run.status === 'done') this.absorbScanSuggestions(run)
+    } finally {
+      this.autoProposing = false
     }
-    if (sources.length === 0) return
-    const g = this.store.loadGrowth()
-    const next = [...sources].sort(
-      (a, b) => (g.lastScannedAt[a.server] ?? 0) - (g.lastScannedAt[b.server] ?? 0)
-    )[0]
-    this.store.setGrowth({
-      ...g,
-      lastScannedAt: { ...g.lastScannedAt, [next.server]: Date.now() },
-      lastAutoProposeAt: Date.now()
-    })
-    await this.scan(
-      next.server,
-      'Automated background scan: surface only a few high-value, clearly groundable candidates.'
-    )
-    // Harvest the newest finished run for this source into the suggestion queue.
-    const run = this.runs.find((r) => r.source === next.server && r.status === 'done')
-    if (run) this.absorbScanSuggestions(run)
   }
 
   private absorbScanSuggestions(run: FactoryRun): void {
@@ -283,12 +275,18 @@ export class FactoryService {
   }
 
   private async maybeRunJudge(messages: ConductorMessage[]): Promise<void> {
-    if (this.busy) return
+    // Also bail while a discovery is in flight: discovery is its own headless
+    // child outside the `busy` lock, and we keep to one agent at a time.
+    if (this.busy || this.discovering) return
     const g = this.store.loadGrowth()
     const now = Date.now()
     if (g.turnsSinceDetect < MIN_TURNS_SINCE_DETECT && now - g.lastDetectAt < DETECT_MIN_INTERVAL_MS) {
       return
     }
+    // Snapshot the turn count we're acting on; the judge runs for up to ~45s and
+    // new turns may complete (and increment) during that window. Subtract this
+    // snapshot in the finally instead of zeroing, so concurrent increments survive.
+    const turnsAtStart = g.turnsSinceDetect
     const day = localDay()
     const callsToday = g.judgeDay === day ? g.judgeCallsToday : 0
     if (callsToday >= JUDGE_DAILY_CAP) return
@@ -296,7 +294,7 @@ export class FactoryService {
     const recent = messages.filter((m) => !m.pending && m.text?.trim()).slice(-DETECT_HISTORY_TURNS)
     if (recent.length === 0) return
 
-    this.busy = true
+    this.setBusy(true)
     this.cancelRequested = false
     try {
       const convo = recent
@@ -318,13 +316,13 @@ export class FactoryService {
       // Detector failures are invisible — never surface to the user.
     } finally {
       this.inFlight = null
-      this.busy = false
+      this.setBusy(false)
       const g2 = this.store.loadGrowth()
       const day2 = localDay()
       this.store.setGrowth({
         ...g2,
         lastDetectAt: Date.now(),
-        turnsSinceDetect: 0,
+        turnsSinceDetect: Math.max(0, (g2.turnsSinceDetect ?? 0) - turnsAtStart),
         judgeDay: day2,
         judgeCallsToday: (g2.judgeDay === day2 ? g2.judgeCallsToday : 0) + 1
       })
@@ -456,18 +454,24 @@ export class FactoryService {
     return s
   }
 
-  /** Keep the queue bounded: prune oldest terminal (created/dismissed) entries first. */
+  /**
+   * Keep the queue bounded by pruning ONLY the oldest terminal (created/dismissed)
+   * entries. Actionable suggestions (open/creating/error) are never dropped — if
+   * those alone exceed the cap we let the queue run over rather than silently
+   * losing work the user still has to act on.
+   */
   private capSuggestions(): void {
     if (this.state.suggestions.length <= MAX_SUGGESTIONS) return
-    const terminal = this.state.suggestions
+    const terminalOldestFirst = this.state.suggestions
       .filter((s) => s.status === 'created' || s.status === 'dismissed')
       .sort((a, b) => a.updatedAt - b.updatedAt)
-    while (this.state.suggestions.length > MAX_SUGGESTIONS && terminal.length > 0) {
-      const drop = terminal.shift()!
-      this.state.suggestions = this.state.suggestions.filter((x) => x.id !== drop.id)
+    const drop = new Set<string>()
+    for (const s of terminalOldestFirst) {
+      if (this.state.suggestions.length - drop.size <= MAX_SUGGESTIONS) break
+      drop.add(s.id)
     }
-    if (this.state.suggestions.length > MAX_SUGGESTIONS) {
-      this.state.suggestions = this.state.suggestions.slice(-MAX_SUGGESTIONS)
+    if (drop.size > 0) {
+      this.state.suggestions = this.state.suggestions.filter((x) => !drop.has(x.id))
     }
   }
 
@@ -509,18 +513,26 @@ export class FactoryService {
     if (!s || (s.status !== 'open' && s.status !== 'error')) return
     if (this.busy) return
     const useKind: FactoryArtifactKind = kind ?? s.suggestedKind
-    this.busy = true
+    this.setBusy(true)
     this.cancelRequested = false
     s.status = 'creating'
+    // Persist the kind the user actually clicked now, not just on success: if the
+    // app is quit mid-create (creating→open on boot) the suggestion must remember
+    // the chosen kind rather than reverting to the originally-suggested one.
+    s.suggestedKind = useKind
     s.result = undefined
     s.updatedAt = Date.now()
     this.persist()
 
     try {
+      // Don't let the author child overlap an in-flight discovery (its own headless
+      // agent): wait it out so we keep to one agent at a time. The scan-origin path
+      // below also awaits listSources(), which joins the same discovery.
+      await this.discovering?.catch(() => {})
       const slug = slugify(s.name)
       let authored: ReturnType<FactoryService['parseAuthor']>
       if (s.origin === 'scan') {
-        const sources = await this.listSources().catch(() => [] as FactorySource[])
+        const sources = await this.discoverCache().catch(() => [] as FactorySource[])
         const source =
           sources.find((x) => x.server === s.source) ??
           ({ server: s.source ?? 'mcp', label: s.sourceLabel, toolPrefix: `mcp__${s.source ?? ''}`, readTools: [] } as FactorySource)
@@ -570,7 +582,6 @@ export class FactoryService {
       })
       const artifact = this.state.artifacts.find((a) => a.kind === useKind && a.name === slug)
       s.status = 'created'
-      s.suggestedKind = useKind
       s.artifactId = artifact?.id
       s.filePath = filePath
       s.result = `Wrote ${useKind} to ${filePath}`
@@ -585,7 +596,7 @@ export class FactoryService {
     } finally {
       s.updatedAt = Date.now()
       this.inFlight = null
-      this.busy = false
+      this.setBusy(false)
       this.persist()
     }
   }
@@ -671,25 +682,50 @@ export class FactoryService {
    * connectors are not in ~/.claude.json, so a no-tool headless agent reports
    * what it can see; we merge that with the user-scope servers from
    * ~/.claude.json. Cached for the app run; `refresh` forces a re-discovery.
+   *
+   * PUBLIC entry point (IPC / renderer refresh / auto-propose pre-scan): if a
+   * heavy op holds the lock, WAIT for it before starting a discovery agent, so
+   * we never run two headless `claude -p` children at once. Lock-holders
+   * (scan/approve/createFromSuggestion) must call discoverCache() instead — they
+   * already hold the lock and would otherwise wait on themselves (deadlock).
    */
   async listSources(refresh = false): Promise<FactorySource[]> {
     if (this.sources && !refresh) return this.sources
-    const discovered = await this.discoverSources().catch(() => [] as FactorySource[])
-    const byKey = new Map<string, FactorySource>()
-    for (const s of discovered) byKey.set(s.server, s)
-    // Merge user-scope servers from ~/.claude.json (e.g. github) if not reported.
-    for (const m of readUserMcpServers()) {
-      if (!byKey.has(m.name)) {
-        byKey.set(m.name, {
-          server: m.name,
-          label: KNOWN_LABELS[m.name] ?? m.name,
-          toolPrefix: `mcp__${m.name}`,
-          readTools: []
-        })
+    while (this.busy && this.busyPromise) await this.busyPromise
+    return this.discoverCache(refresh)
+  }
+
+  /**
+   * The actual cached/memoized discovery, with NO busy-wait. Safe to call from a
+   * lock-holder because discovery runs before that op spawns its own child, so
+   * only one headless child is ever alive. Concurrent callers join one discovery.
+   */
+  private discoverCache(refresh = false): Promise<FactorySource[]> {
+    if (this.sources && !refresh) return Promise.resolve(this.sources)
+    if (this.discovering) return this.discovering
+    this.discovering = (async () => {
+      try {
+        const discovered = await this.discoverSources().catch(() => [] as FactorySource[])
+        const byKey = new Map<string, FactorySource>()
+        for (const s of discovered) byKey.set(s.server, s)
+        // Merge user-scope servers from ~/.claude.json (e.g. github) if not reported.
+        for (const m of readUserMcpServers()) {
+          if (!byKey.has(m.name)) {
+            byKey.set(m.name, {
+              server: m.name,
+              label: KNOWN_LABELS[m.name] ?? m.name,
+              toolPrefix: `mcp__${m.name}`,
+              readTools: []
+            })
+          }
+        }
+        this.sources = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
+        return this.sources
+      } finally {
+        this.discovering = null
       }
-    }
-    this.sources = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
-    return this.sources
+    })()
+    return this.discovering
   }
 
   private async discoverSources(): Promise<FactorySource[]> {
@@ -713,13 +749,15 @@ export class FactoryService {
       '{"servers":[{"server":"...","label":"...","canRead":true,"readTools":["mcp__..._..."]}]}'
     ].join('\n')
 
+    // Discovery uses its OWN child slot, never the shared `inFlight`, so its
+    // completion can't null out a concurrently-running scan/author/judge child.
     const out = await runHeadlessClaude({
       cwd: process.cwd(),
       prompt,
       allowedTools: ['Read'],
       timeoutMs: DISCOVER_TIMEOUT_MS,
-      onSpawn: (child) => (this.inFlight = child)
-    }).finally(() => (this.inFlight = null))
+      onSpawn: (child) => (this.discoverChild = child)
+    }).finally(() => (this.discoverChild = null))
 
     const parsed = extractJson(out) as { servers?: unknown } | null
     const list = Array.isArray(parsed?.servers) ? parsed.servers : []
@@ -744,32 +782,40 @@ export class FactoryService {
 
   // ---------- scan (phase 1) ----------
 
-  /** Explore a source and propose skill/agent candidates. */
-  async scan(serverKey: string, guidance: string): Promise<void> {
-    if (this.busy) return
-    const sources = await this.listSources()
-    const source = sources.find((s) => s.server === serverKey)
-    if (!source) throw new Error(`Unknown source: ${serverKey}`)
-    this.busy = true
+  /**
+   * Explore a source and propose skill/agent candidates. Claims the single
+   * `busy` lock SYNCHRONOUSLY (before any await) so two headless agents can
+   * never run at once. Returns the created run's id, or null if it bailed on
+   * the busy guard (no run, no tokens spent) — callers (auto-propose) use this
+   * to harvest exactly this run and to only consume budget when a scan ran.
+   * Throws (releasing the lock) only for an unknown source / discovery failure.
+   */
+  async scan(serverKey: string, guidance: string): Promise<string | null> {
+    if (this.busy) return null
+    this.setBusy(true)
     this.cancelRequested = false
-
-    const run: FactoryRun = {
-      id: randomUUID(),
-      source: source.server,
-      sourceLabel: source.label,
-      guidance: guidance.trim(),
-      startedAt: Date.now(),
-      finishedAt: null,
-      status: 'running',
-      phase: 'discovering',
-      candidates: [],
-      summary: ''
-    }
-    this.pushRun(run)
-
+    let run: FactoryRun | null = null
     try {
+      // Lock-holder: discover without waiting on our own lock.
+      const sources = await this.discoverCache()
+      const source = sources.find((s) => s.server === serverKey)
+      if (!source) throw new Error(`Unknown source: ${serverKey}`)
+
+      run = {
+        id: randomUUID(),
+        source: source.server,
+        sourceLabel: source.label,
+        guidance: guidance.trim(),
+        startedAt: Date.now(),
+        finishedAt: null,
+        status: 'running',
+        phase: 'discovering',
+        candidates: [],
+        summary: ''
+      }
+      this.pushRun(run)
+
       const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
-      run.phase = 'discovering'
       this.broadcastRuns()
       const out = await runHeadlessClaude({
         cwd: process.cwd(),
@@ -785,15 +831,25 @@ export class FactoryService {
       run.status = 'done'
       this.absorbTopics(parsed.newTopics, source.server)
     } catch (err) {
-      run.status = this.cancelRequested ? 'cancelled' : 'error'
-      run.phase = 'done'
-      run.summary = this.cancelRequested ? 'Cancelled.' : (err as Error).message || String(err)
+      if (run) {
+        run.status = this.cancelRequested ? 'cancelled' : 'error'
+        run.phase = 'done'
+        run.summary = this.cancelRequested ? 'Cancelled.' : (err as Error).message || String(err)
+      } else {
+        // Unknown source / discovery failure before a run existed — release and rethrow.
+        this.inFlight = null
+        this.setBusy(false)
+        throw err
+      }
     } finally {
-      run.finishedAt = Date.now()
-      this.inFlight = null
-      this.busy = false
-      this.broadcastRuns()
+      if (run) {
+        run.finishedAt = Date.now()
+        this.inFlight = null
+        this.setBusy(false)
+        this.broadcastRuns()
+      }
     }
+    return run ? run.id : null
   }
 
   private scanPrompt(source: FactorySource, guidance: string): string {
@@ -901,7 +957,7 @@ export class FactoryService {
     const candidate = run?.candidates.find((c) => c.id === candidateId)
     if (!run || !candidate || (candidate.status !== 'proposed' && candidate.status !== 'error')) return
     if (this.busy) return
-    this.busy = true
+    this.setBusy(true)
     this.cancelRequested = false
     candidate.status = 'authoring'
     candidate.result = undefined
@@ -909,7 +965,7 @@ export class FactoryService {
 
     try {
       const source =
-        (await this.listSources()).find((s) => s.server === run.source) ??
+        (await this.discoverCache()).find((s) => s.server === run.source) ??
         ({ server: run.source, label: run.sourceLabel, toolPrefix: `mcp__${run.source}`, readTools: [] } as FactorySource)
       const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
       const slug = slugify(candidate.name)
@@ -951,7 +1007,7 @@ export class FactoryService {
       }
     } finally {
       this.inFlight = null
-      this.busy = false
+      this.setBusy(false)
       this.broadcastRuns()
       this.broadcastState()
     }
@@ -1245,6 +1301,31 @@ export class FactoryService {
 
   private broadcastState(): void {
     this.getWin()?.webContents.send('factory:changed', this.state)
+  }
+
+  /**
+   * Single source of truth for the headless lock. Setting it broadcasts so the
+   * renderer can reflect background work (judge / author / scan) that doesn't
+   * create a visible FactoryRun — preventing buttons that would silently no-op
+   * against the lock from staying enabled.
+   */
+  private setBusy(v: boolean): void {
+    if (this.busy === v) return
+    this.busy = v
+    if (v) {
+      // Fresh gate that an idle-waiter (public listSources) can await.
+      this.busyPromise = new Promise<void>((resolve) => (this.busyResolve = resolve))
+    } else {
+      this.busyResolve?.()
+      this.busyResolve = null
+      this.busyPromise = null
+    }
+    this.getWin()?.webContents.send('factory:busy', v)
+  }
+
+  /** Current headless-lock state (for the initial renderer fetch). */
+  isBusy(): boolean {
+    return this.busy
   }
 
   private broadcastRuns(): void {

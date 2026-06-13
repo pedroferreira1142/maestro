@@ -439,7 +439,10 @@ function FactoryEntry(): JSX.Element {
     )
   )
   const suggestionCount = useStore(
-    (s) => (s.factoryState.suggestions ?? []).filter((x) => x.status === 'open').length
+    (s) =>
+      (s.factoryState.suggestions ?? []).filter(
+        (x) => x.status === 'open' || x.status === 'error'
+      ).length
   )
   const active = view === 'factory'
   return (

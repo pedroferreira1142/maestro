@@ -118,9 +118,12 @@ function CandidateCard({ runId, candidate }: { runId: string; candidate: Factory
 /** One self-growth suggestion with create-skill / create-agent / dismiss controls. */
 function SuggestionCard({
   suggestion,
+  busy,
   onOpenArtifact
 }: {
   suggestion: FactorySuggestion
+  /** True while the factory is running any headless work — creating would no-op. */
+  busy: boolean
   onOpenArtifact: (name: string) => void
 }): JSX.Element {
   const create = useStore((s) => s.createFromSuggestion)
@@ -128,6 +131,7 @@ function SuggestionCard({
   const [kind, setKind] = useState<FactoryArtifactKind>(suggestion.suggestedKind)
   const creating = suggestion.status === 'creating'
   const origin = ORIGIN_CHIP[suggestion.origin]
+  const busyHint = busy ? 'The factory is busy — wait for the current task to finish' : undefined
   return (
     <div className={`factory-suggestion kind-${kind} status-${suggestion.status}`}>
       <div className="factory-suggestion-head">
@@ -173,6 +177,8 @@ function SuggestionCard({
         <div className="factory-suggestion-buttons">
           <button
             className="btn primary"
+            disabled={busy}
+            title={busyHint}
             onClick={() => {
               setKind('skill')
               void create(suggestion.id, 'skill')
@@ -182,6 +188,8 @@ function SuggestionCard({
           </button>
           <button
             className="btn primary"
+            disabled={busy}
+            title={busyHint}
             onClick={() => {
               setKind('agent')
               void create(suggestion.id, 'agent')
@@ -196,7 +204,12 @@ function SuggestionCard({
       )}
       {suggestion.status === 'error' && (
         <div className="factory-suggestion-buttons">
-          <button className="btn" onClick={() => void create(suggestion.id, kind)}>
+          <button
+            className="btn"
+            disabled={busy}
+            title={busyHint}
+            onClick={() => void create(suggestion.id, kind)}
+          >
             Retry
           </button>
           <button className="btn ghost" onClick={() => void dismiss(suggestion.id)}>
@@ -720,6 +733,7 @@ export function FactoryPane(): JSX.Element {
   const runs = useStore((s) => s.factoryRuns)
   const state = useStore((s) => s.factoryState)
   const audit = useStore((s) => s.factoryAudit)
+  const backendBusy = useStore((s) => s.factoryBusy)
   const loadSources = useStore((s) => s.loadFactorySources)
   const scan = useStore((s) => s.scanFactory)
   const clearRuns = useStore((s) => s.clearFactoryRuns)
@@ -775,8 +789,10 @@ export function FactoryPane(): JSX.Element {
   const creatingSuggestions = suggestions.filter((s) => s.status === 'creating').length
 
   const busy = useMemo(
-    () => runs.some((r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')),
-    [runs]
+    () =>
+      backendBusy ||
+      runs.some((r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')),
+    [runs, backendBusy]
   )
   const openTopics = state.topics.filter((t) => t.status === 'open')
   const missingIds = useMemo(() => new Set(audit?.missingFileIds ?? []), [audit])
@@ -987,8 +1003,12 @@ export function FactoryPane(): JSX.Element {
         </div>
         <button
           className="btn ghost"
-          title="Re-discover connected MCP sources"
-          disabled={sourcesLoading}
+          title={
+            busy
+              ? 'The factory is busy — wait for the current task to finish'
+              : 'Re-discover connected MCP sources'
+          }
+          disabled={sourcesLoading || busy}
           onClick={() => void loadSources(true)}
         >
           {sourcesLoading ? '⟳ Discovering…' : '⟳ Sources'}
@@ -1035,7 +1055,12 @@ export function FactoryPane(): JSX.Element {
             ) : (
               <div className="factory-candidates">
                 {openSuggestions.map((s) => (
-                  <SuggestionCard key={s.id} suggestion={s} onOpenArtifact={openArtifact} />
+                  <SuggestionCard
+                    key={s.id}
+                    suggestion={s}
+                    busy={busy || creatingSuggestions > 0}
+                    onOpenArtifact={openArtifact}
+                  />
                 ))}
               </div>
             )}

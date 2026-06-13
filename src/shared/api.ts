@@ -9,7 +9,6 @@ import type {
   DirEntry,
   FactoryArtifactKind,
   FactoryAudit,
-  FactoryInventory,
   FactoryRun,
   FactorySource,
   FactoryState,
@@ -284,16 +283,16 @@ export interface Api {
   createFromSuggestion(id: string, kind?: FactoryArtifactKind): Promise<void>
   /** Dismiss a suggestion without building it. */
   dismissSuggestion(id: string): Promise<void>
-  /** Last cheap inventory snapshot (installed/registered counts + drift), or null. */
-  getFactoryInventory(): Promise<FactoryInventory | null>
+  /** Current headless-lock state (a scan/author/judge/discovery is running). */
+  getFactoryBusy(): Promise<boolean>
   /** Fired whenever the registry/backlog/lessons/suggestions change. */
   onFactoryChanged(cb: (state: FactoryState) => void): Unsubscribe
   /** Fired whenever the scan run list changes (phase/candidate updates). */
   onFactoryRuns(cb: (runs: FactoryRun[]) => void): Unsubscribe
   /** Fired when a new self-growth suggestion arrives (drives the badge/banner). */
   onFactorySuggestion(cb: (suggestion: FactorySuggestion) => void): Unsubscribe
-  /** Fired when the cheap inventory refresh detects a change. */
-  onFactoryInventory(cb: (inventory: FactoryInventory) => void): Unsubscribe
+  /** Fired when the headless lock flips — lets the UI disable actions that would no-op. */
+  onFactoryBusy(cb: (busy: boolean) => void): Unsubscribe
 
   // installed agents + external agent-factory registry (Factory → Agents tab)
   /** Installed agents (~/.claude/agents + session repos) merged with the external registry. */

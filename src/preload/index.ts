@@ -6,7 +6,6 @@ import type {
   ConductorImage,
   ConductorMessage,
   ConductorTaskOptions,
-  FactoryInventory,
   FactoryRun,
   FactoryState,
   FactorySuggestion,
@@ -147,14 +146,13 @@ const api: Api = {
   createFromSuggestion: (id, kind) =>
     ipcRenderer.invoke('factory:createFromSuggestion', id, kind),
   dismissSuggestion: (id) => ipcRenderer.invoke('factory:dismissSuggestion', id),
-  getFactoryInventory: () => ipcRenderer.invoke('factory:inventory'),
+  getFactoryBusy: () => ipcRenderer.invoke('factory:isBusy'),
   onFactoryChanged: (cb) =>
     subscribe('factory:changed', (state) => cb(state as FactoryState)),
   onFactoryRuns: (cb) => subscribe('factory:runs', (runs) => cb(runs as FactoryRun[])),
   onFactorySuggestion: (cb) =>
     subscribe('factory:suggestion', (s) => cb(s as FactorySuggestion)),
-  onFactoryInventory: (cb) =>
-    subscribe('factory:inventory', (inv) => cb(inv as FactoryInventory)),
+  onFactoryBusy: (cb) => subscribe('factory:busy', (b) => cb(Boolean(b))),
 
   getInstalledAgents: () => ipcRenderer.invoke('agents:get'),
   refreshInstalledAgents: () => ipcRenderer.invoke('agents:refresh'),

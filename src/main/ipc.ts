@@ -238,6 +238,7 @@ export function registerIpc(
   ipcMain.handle('factory:listSources', (_e, refresh?: boolean) => factory.listSources(refresh))
   ipcMain.handle('factory:state', () => factory.getState())
   ipcMain.handle('factory:runs', () => factory.listRuns())
+  ipcMain.handle('factory:isBusy', () => factory.isBusy())
   ipcMain.handle('factory:scan', (_e, serverKey: string, guidance: string) =>
     factory.scan(serverKey, guidance)
   )
@@ -267,7 +268,6 @@ export function registerIpc(
     factory.createFromSuggestion(id, kind)
   )
   ipcMain.handle('factory:dismissSuggestion', (_e, id: string) => factory.dismissSuggestion(id))
-  ipcMain.handle('factory:inventory', () => factory.getInventory())
 
   // --- installed agents + external agent-factory registry (Factory → Agents tab) ---
   ipcMain.handle('agents:get', () => agents.snapshot())
