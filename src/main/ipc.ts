@@ -238,6 +238,7 @@ export function registerIpc(
   ipcMain.handle('factory:listSources', (_e, refresh?: boolean) => factory.listSources(refresh))
   ipcMain.handle('factory:state', () => factory.getState())
   ipcMain.handle('factory:runs', () => factory.listRuns())
+  ipcMain.handle('factory:isBusy', () => factory.isBusy())
   ipcMain.handle('factory:scan', (_e, serverKey: string, guidance: string) =>
     factory.scan(serverKey, guidance)
   )
@@ -262,6 +263,11 @@ export function registerIpc(
   ipcMain.handle('factory:dismissTopic', (_e, id: string) => factory.dismissTopic(id))
   ipcMain.handle('factory:addLesson', (_e, text: string) => factory.addLesson(text))
   ipcMain.handle('factory:deleteLesson', (_e, id: string) => factory.deleteLesson(id))
+  // self-growth suggestions
+  ipcMain.handle('factory:createFromSuggestion', (_e, id: string, kind?: FactoryArtifactKind) =>
+    factory.createFromSuggestion(id, kind)
+  )
+  ipcMain.handle('factory:dismissSuggestion', (_e, id: string) => factory.dismissSuggestion(id))
 
   // --- installed agents + external agent-factory registry (Factory → Agents tab) ---
   ipcMain.handle('agents:get', () => agents.snapshot())

@@ -7,6 +7,8 @@ import type {
   FactoryArtifactKind,
   FactoryCandidate,
   FactoryRun,
+  FactorySuggestion,
+  FactoryTab,
   InstalledAgent
 } from '../../../shared/types'
 import { useStore } from '../store'
@@ -21,7 +23,11 @@ const RUN_STATUS_LABEL: Record<FactoryRun['status'], string> = {
   cancelled: 'cancelled'
 }
 
-type FactoryTab = 'scans' | 'agents' | 'registry' | 'backlog' | 'lessons' | 'graph'
+/** Origin chip label/glyph for a suggestion. */
+const ORIGIN_CHIP: Record<FactorySuggestion['origin'], { glyph: string; label: string }> = {
+  chat: { glyph: '✦', label: 'Maestro chat' },
+  scan: { glyph: '⟲', label: 'MCP scan' }
+}
 
 /** A leading YAML frontmatter block (stripped before rendering an agent's body). */
 const FRONTMATTER_RE = /^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?/
@@ -102,6 +108,120 @@ function CandidateCard({ runId, candidate }: { runId: string; candidate: Factory
           </button>
           <button className="btn ghost" onClick={() => void reject(runId, candidate.id)}>
             Dismiss
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One self-growth suggestion with create-skill / create-agent / dismiss controls. */
+function SuggestionCard({
+  suggestion,
+  busy,
+  onOpenArtifact
+}: {
+  suggestion: FactorySuggestion
+  /** True while the factory is running any headless work — creating would no-op. */
+  busy: boolean
+  onOpenArtifact: (name: string) => void
+}): JSX.Element {
+  const create = useStore((s) => s.createFromSuggestion)
+  const dismiss = useStore((s) => s.dismissSuggestion)
+  const [kind, setKind] = useState<FactoryArtifactKind>(suggestion.suggestedKind)
+  const creating = suggestion.status === 'creating'
+  const origin = ORIGIN_CHIP[suggestion.origin]
+  const busyHint = busy ? 'The factory is busy — wait for the current task to finish' : undefined
+  return (
+    <div className={`factory-suggestion kind-${kind} status-${suggestion.status}`}>
+      <div className="factory-suggestion-head">
+        <span className={`kind-chip kind-${kind}`}>{KIND_LABEL[kind]}</span>
+        <span className="factory-suggestion-name">{suggestion.name}</span>
+        {suggestion.existing && (
+          <span className="factory-enrich" title={`Enriches ${suggestion.existing}`}>
+            enrich → {suggestion.existing}
+          </span>
+        )}
+        <span
+          className={`factory-origin-chip origin-${suggestion.origin}`}
+          title={
+            suggestion.origin === 'scan'
+              ? `Auto-detected from a background scan of ${suggestion.sourceLabel}`
+              : 'Spotted in the Maestro chat'
+          }
+        >
+          {origin.glyph} {suggestion.origin === 'scan' ? suggestion.sourceLabel : origin.label}
+        </span>
+        {suggestion.confidence > 0 && (
+          <span className="factory-confidence" title="Detector confidence">
+            {Math.round(suggestion.confidence * 100)}%
+          </span>
+        )}
+        {creating && <span className="factory-cand-status status-creating">⟳ creating…</span>}
+      </div>
+      <div className="factory-suggestion-desc">{suggestion.description}</div>
+      {suggestion.topics.length > 0 && (
+        <div className="factory-tags">
+          {suggestion.topics.map((t) => (
+            <span key={t} className="factory-tag">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      {suggestion.rationale && <div className="factory-rationale">{suggestion.rationale}</div>}
+      {suggestion.status === 'error' && suggestion.result && (
+        <div className="factory-candidate-result status-error">{suggestion.result}</div>
+      )}
+      {suggestion.status === 'open' && (
+        <div className="factory-suggestion-buttons">
+          <button
+            className="btn primary"
+            disabled={busy}
+            title={busyHint}
+            onClick={() => {
+              setKind('skill')
+              void create(suggestion.id, 'skill')
+            }}
+          >
+            Create skill
+          </button>
+          <button
+            className="btn primary"
+            disabled={busy}
+            title={busyHint}
+            onClick={() => {
+              setKind('agent')
+              void create(suggestion.id, 'agent')
+            }}
+          >
+            Create agent
+          </button>
+          <button className="btn ghost" onClick={() => void dismiss(suggestion.id)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {suggestion.status === 'error' && (
+        <div className="factory-suggestion-buttons">
+          <button
+            className="btn"
+            disabled={busy}
+            title={busyHint}
+            onClick={() => void create(suggestion.id, kind)}
+          >
+            Retry
+          </button>
+          <button className="btn ghost" onClick={() => void dismiss(suggestion.id)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {suggestion.status === 'created' && (
+        <div className="factory-suggestion-created">
+          ✓ Created —{' '}
+          <button className="factory-related-link" onClick={() => onOpenArtifact(suggestion.name)}>
+            open in registry
           </button>
         </div>
       )}
@@ -613,6 +733,7 @@ export function FactoryPane(): JSX.Element {
   const runs = useStore((s) => s.factoryRuns)
   const state = useStore((s) => s.factoryState)
   const audit = useStore((s) => s.factoryAudit)
+  const backendBusy = useStore((s) => s.factoryBusy)
   const loadSources = useStore((s) => s.loadFactorySources)
   const scan = useStore((s) => s.scanFactory)
   const clearRuns = useStore((s) => s.clearFactoryRuns)
@@ -624,8 +745,13 @@ export function FactoryPane(): JSX.Element {
   const agentsSnap = useStore((s) => s.agentsSnapshot)
   const refreshAgents = useStore((s) => s.refreshAgents)
   const reloadSettings = useStore((s) => s.reloadSettings)
+  const wantTab = useStore((s) => s.factoryTab)
+  const clearWantTab = useStore((s) => s.clearFactoryTab)
+  const banner = useStore((s) => s.suggestionBanner)
+  const openSuggestionsView = useStore((s) => s.openFactorySuggestions)
+  const dismissBanner = useStore((s) => s.dismissSuggestionBanner)
 
-  const [tab, setTab] = useState<FactoryTab>('scans')
+  const [tab, setTab] = useState<FactoryTab>(wantTab ?? 'scans')
   const [serverKey, setServerKey] = useState('')
   const [guidance, setGuidance] = useState('')
   const [lessonText, setLessonText] = useState('')
@@ -647,9 +773,26 @@ export function FactoryPane(): JSX.Element {
     if (!serverKey && sources.length > 0) setServerKey(sources[0].server)
   }, [sources, serverKey])
 
+  // Consume a deep-link tab request (e.g. the banner / sidebar opening Suggestions).
+  useEffect(() => {
+    if (wantTab) {
+      setTab(wantTab)
+      clearWantTab()
+    }
+  }, [wantTab, clearWantTab])
+
+  const suggestions = state.suggestions ?? []
+  const openSuggestions = useMemo(
+    () => suggestions.filter((s) => s.status === 'open' || s.status === 'error'),
+    [suggestions]
+  )
+  const creatingSuggestions = suggestions.filter((s) => s.status === 'creating').length
+
   const busy = useMemo(
-    () => runs.some((r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')),
-    [runs]
+    () =>
+      backendBusy ||
+      runs.some((r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')),
+    [runs, backendBusy]
   )
   const openTopics = state.topics.filter((t) => t.status === 'open')
   const missingIds = useMemo(() => new Set(audit?.missingFileIds ?? []), [audit])
@@ -725,9 +868,14 @@ export function FactoryPane(): JSX.Element {
     [installedAgents]
   )
 
-  /** Artifacts + installed agents as one node set for the connection graph. */
+  /** Artifacts + installed agents + open suggestions (ghosts) as one node set. */
   const graphNodes = useMemo<FactoryGraphNode[]>(() => {
-    const nodes: FactoryGraphNode[] = [...state.artifacts]
+    const nodes: FactoryGraphNode[] = state.artifacts.map((a) => ({
+      name: a.name,
+      kind: a.kind,
+      description: a.description,
+      relatedArtifacts: a.relatedArtifacts
+    }))
     const have = new Set(state.artifacts.map((a) => a.name))
     for (const a of installedAgents) {
       if (have.has(a.name)) continue
@@ -739,8 +887,20 @@ export function FactoryPane(): JSX.Element {
         relatedArtifacts: a.registry?.relatedAgents ?? []
       })
     }
+    // Open suggestions appear as dashed "ghost" nodes — the network visibly growing.
+    for (const s of openSuggestions) {
+      if (have.has(s.name)) continue
+      have.add(s.name)
+      nodes.push({
+        name: s.name,
+        kind: s.suggestedKind,
+        description: s.description,
+        relatedArtifacts: s.existing ? [s.existing] : [],
+        pending: true
+      })
+    }
     return nodes
-  }, [state.artifacts, installedAgents])
+  }, [state.artifacts, installedAgents, openSuggestions])
 
   const doScan = (): void => {
     if (!serverKey || busy) return
@@ -769,9 +929,10 @@ export function FactoryPane(): JSX.Element {
     setSelectedAgentPath(agent.filePath)
   }
 
-  /** Graph click: registry artifacts win, installed agents are the fallback. */
+  /** Graph click: registry artifacts win, then a pending suggestion, then installed agents. */
   const openNode = (name: string): void => {
     if (state.artifacts.some((a) => a.name === name)) openArtifact(name)
+    else if (openSuggestions.some((s) => s.name === name)) setTab('suggestions')
     else openAgent(name)
   }
 
@@ -793,6 +954,17 @@ export function FactoryPane(): JSX.Element {
       label: 'Scans',
       badge: busy ? '⟳' : proposedCount > 0 ? String(proposedCount) : undefined,
       alert: proposedCount > 0
+    },
+    {
+      key: 'suggestions',
+      label: 'Suggestions',
+      badge:
+        creatingSuggestions > 0
+          ? '⟳'
+          : openSuggestions.length > 0
+            ? String(openSuggestions.length)
+            : undefined,
+      alert: openSuggestions.length > 0
     },
     {
       key: 'agents',
@@ -831,13 +1003,70 @@ export function FactoryPane(): JSX.Element {
         </div>
         <button
           className="btn ghost"
-          title="Re-discover connected MCP sources"
-          disabled={sourcesLoading}
+          title={
+            busy
+              ? 'The factory is busy — wait for the current task to finish'
+              : 'Re-discover connected MCP sources'
+          }
+          disabled={sourcesLoading || busy}
           onClick={() => void loadSources(true)}
         >
           {sourcesLoading ? '⟳ Discovering…' : '⟳ Sources'}
         </button>
       </div>
+
+      {banner && (
+        <div className="factory-suggest-banner" role="status">
+          <span className="factory-suggest-banner-icon">✦</span>
+          <span className="factory-suggest-banner-text">
+            New {banner.suggestedKind} suggestion: <strong>{banner.name}</strong> — {banner.description}
+          </span>
+          <button
+            className="btn"
+            onClick={() => {
+              openSuggestionsView()
+              dismissBanner()
+            }}
+          >
+            Review
+          </button>
+          <button className="factory-suggest-banner-close" title="Dismiss" onClick={dismissBanner}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {tab === 'suggestions' && (
+        <div className="factory-body">
+          <section className="factory-section">
+            <div className="factory-section-head">
+              <h3>Suggestions ({openSuggestions.length})</h3>
+            </div>
+            {openSuggestions.length === 0 ? (
+              <div className="factory-empty-state">
+                <div className="factory-empty-icon">✦</div>
+                <div className="factory-empty-title">No suggestions right now</div>
+                <div className="factory-empty-text">
+                  Maestro watches your Conductor chats and periodically scans connected MCP sources
+                  for reusable skills &amp; agents. When it spots one, it appears here for one-click
+                  creation — nothing is built without your say-so.
+                </div>
+              </div>
+            ) : (
+              <div className="factory-candidates">
+                {openSuggestions.map((s) => (
+                  <SuggestionCard
+                    key={s.id}
+                    suggestion={s}
+                    busy={busy || creatingSuggestions > 0}
+                    onOpenArtifact={openArtifact}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       {tab === 'scans' && (
         <>

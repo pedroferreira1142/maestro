@@ -76,6 +76,17 @@ export default function App(): JSX.Element {
       window.api.onConductorChanged((msgs) => useStore.getState().applyConductor(msgs)),
       window.api.onFactoryChanged((state) => useStore.getState().applyFactoryState(state)),
       window.api.onFactoryRuns((runs) => useStore.getState().applyFactoryRuns(runs)),
+      window.api.onFactoryBusy((busy) => useStore.getState().setFactoryBusy(busy)),
+      window.api.onFactorySuggestion((suggestion) => {
+        const st = useStore.getState()
+        st.showSuggestionBanner(suggestion)
+        // When not already in the Factory, also fire a brief global toast.
+        if (st.view !== 'factory') {
+          st.showNotice(
+            `New ${suggestion.suggestedKind} suggestion: ${suggestion.name} — open the Factory to review`
+          )
+        }
+      }),
       window.api.onAgentsChanged((snapshot) => useStore.getState().applyAgentsSnapshot(snapshot)),
       window.api.onFocusSession((id, terminalId) => {
         const st = useStore.getState()

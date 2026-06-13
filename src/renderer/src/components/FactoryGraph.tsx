@@ -4,12 +4,14 @@ import type { FactoryArtifactKind } from '../../../shared/types'
 /**
  * A node of the connection graph. FactoryArtifact satisfies this structurally;
  * installed agents (Agents tab) are mapped onto it so they join the same graph.
+ * `pending` marks an open suggestion — a "ghost" node not yet built.
  */
 export interface FactoryGraphNode {
   name: string
   kind: FactoryArtifactKind
   description: string
   relatedArtifacts: string[]
+  pending?: boolean
 }
 
 interface NodeState {
@@ -26,11 +28,23 @@ interface GraphLink {
   b: string
 }
 
+interface ViewTransform {
+  x: number
+  y: number
+  k: number
+}
+
+const MIN_K = 0.4
+const MAX_K = 2.5
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+
 /**
  * Force-directed connection graph of the registry (the visual counterpart of
  * the bidirectional `relatedArtifacts` edges) — drag nodes, hover to highlight
- * a node's neighbourhood, click to open the artifact in the Registry tab.
- * A tiny self-contained simulation: no chart library, just SVG + rAF.
+ * a node's neighbourhood, click to open a node; scroll to zoom, drag the
+ * background to pan, ⤢ to fit. Open suggestions show as dashed ghost nodes, so
+ * the network is visibly growing. A tiny self-contained simulation: no chart
+ * library, just SVG + rAF.
  */
 export function FactoryGraph({
   artifacts,
@@ -42,6 +56,9 @@ export function FactoryGraph({
   const containerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 800, h: 520 })
   const [hover, setHover] = useState<string | null>(null)
+  const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, k: 1 })
+  const viewRef = useRef(view)
+  viewRef.current = view
   // Bumped every simulation frame so React re-renders from the position map.
   const [, setFrame] = useState(0)
 
@@ -72,10 +89,35 @@ export function FactoryGraph({
     return map
   }, [links])
 
+  const pendingNames = useMemo(
+    () => new Set(artifacts.filter((a) => a.pending).map((a) => a.name)),
+    [artifacts]
+  )
+  const counts = useMemo(() => {
+    let skills = 0
+    let agents = 0
+    let ghosts = 0
+    for (const a of artifacts) {
+      if (a.pending) ghosts++
+      else if (a.kind === 'skill') skills++
+      else agents++
+    }
+    return { skills, agents, ghosts, links: links.length }
+  }, [artifacts, links])
+
   /** Mutable simulation state, keyed by artifact name. */
   const nodesRef = useRef(new Map<string, NodeState>())
   /** Simulation "heat" — decays to 0; re-warmed on data changes and drags. */
   const alphaRef = useRef(1)
+  /** Auto-fit once per data shape, when the layout first settles. */
+  const fittedRef = useRef(false)
+  /**
+   * Set once the user pans/zooms/drag-arranges. While true, the settle-time
+   * auto-fit is suppressed so a new ghost node (which re-warms the sim) can't
+   * yank the camera away from where the user parked it. The ⤢ Fit button
+   * re-arms auto-follow by clearing it.
+   */
+  const userInteractedRef = useRef(false)
 
   // Track the container size so the SVG always fills the tab.
   useEffect(() => {
@@ -88,7 +130,8 @@ export function FactoryGraph({
     return () => window.removeEventListener('resize', measure)
   }, [])
 
-  // Seed new nodes on a circle, drop removed ones, and re-warm the layout.
+  // Seed new nodes (near their already-placed neighbours, else on a circle), drop
+  // removed ones, and re-warm + re-fit the layout.
   useEffect(() => {
     const nodes = nodesRef.current
     const names = new Set(artifacts.map((a) => a.name))
@@ -96,19 +139,51 @@ export function FactoryGraph({
     let i = 0
     for (const a of artifacts) {
       if (!nodes.has(a.name)) {
+        // Average of any neighbours already placed → a graceful join.
+        let sx = 0
+        let sy = 0
+        let n = 0
+        for (const rel of a.relatedArtifacts) {
+          const p = nodes.get(rel)
+          if (p) {
+            sx += p.x
+            sy += p.y
+            n++
+          }
+        }
         const angle = (i / Math.max(1, artifacts.length)) * Math.PI * 2
-        nodes.set(a.name, {
-          x: size.w / 2 + Math.cos(angle) * Math.min(size.w, size.h) * 0.3,
-          y: size.h / 2 + Math.sin(angle) * Math.min(size.w, size.h) * 0.3,
-          vx: 0,
-          vy: 0,
-          dragging: false
-        })
+        const seedX = n > 0 ? sx / n + (Math.random() - 0.5) * 40 : size.w / 2 + Math.cos(angle) * Math.min(size.w, size.h) * 0.3
+        const seedY = n > 0 ? sy / n + (Math.random() - 0.5) * 40 : size.h / 2 + Math.sin(angle) * Math.min(size.w, size.h) * 0.3
+        nodes.set(a.name, { x: seedX, y: seedY, vx: 0, vy: 0, dragging: false })
       }
       i++
     }
     alphaRef.current = 1
+    fittedRef.current = false
   }, [artifacts, size.w, size.h])
+
+  /** Frame the whole node cloud with padding. */
+  const fit = (): void => {
+    const nodes = nodesRef.current
+    if (nodes.size === 0) return
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const [, p] of nodes) {
+      minX = Math.min(minX, p.x)
+      minY = Math.min(minY, p.y)
+      maxX = Math.max(maxX, p.x)
+      maxY = Math.max(maxY, p.y)
+    }
+    const pad = 60
+    const bw = Math.max(1, maxX - minX)
+    const bh = Math.max(1, maxY - minY)
+    const k = clamp(Math.min((size.w - pad * 2) / bw, (size.h - pad * 2) / bh), MIN_K, MAX_K)
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    setView({ k, x: size.w / 2 - cx * k, y: size.h / 2 - cy * k })
+  }
 
   // The simulation loop: repulsion + link springs + centering, until cool.
   useEffect(() => {
@@ -157,34 +232,50 @@ export function FactoryGraph({
         for (const [, p] of nodes) {
           p.vx += (size.w / 2 - p.x) * 0.0035 * alpha
           p.vy += (size.h / 2 - p.y) * 0.0035 * alpha
+          p.vx *= 0.85
+          p.vy *= 0.85
           if (!p.dragging) {
             p.x += p.vx
             p.y += p.vy
+            // Keep simulated nodes inside a container-sized world box. A node the
+            // user is actively dragging is exempt: it follows the pointer to any
+            // world position (the fit/pan transform handles where that shows).
+            p.x = Math.min(size.w - 16, Math.max(16, p.x))
+            p.y = Math.min(size.h - 16, Math.max(16, p.y))
           }
-          p.vx *= 0.85
-          p.vy *= 0.85
-          p.x = Math.min(size.w - 16, Math.max(16, p.x))
-          p.y = Math.min(size.h - 16, Math.max(16, p.y))
         }
         alphaRef.current = alpha * 0.985
+        // Once the layout has settled, frame it once — but never steal a view the
+        // user has manually positioned (a re-warm from a new ghost node would
+        // otherwise re-fit and jump the camera).
+        if (!fittedRef.current && !userInteractedRef.current && alphaRef.current <= 0.05) {
+          fittedRef.current = true
+          fit()
+        }
         setFrame((f) => f + 1)
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [links, size.w, size.h])
 
-  // Drag interaction (click with <4px movement opens the artifact).
-  const dragRef = useRef<{ name: string; moved: boolean; startX: number; startY: number } | null>(null)
-  const svgPoint = (e: React.PointerEvent<SVGGElement>): { x: number; y: number } => {
-    const svg = e.currentTarget.ownerSVGElement
-    const rect = (svg ?? e.currentTarget).getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  /** Screen (container-relative) → world (pre-transform) coords. */
+  const toWorld = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    const sx = clientX - (rect?.left ?? 0)
+    const sy = clientY - (rect?.top ?? 0)
+    const v = viewRef.current
+    return { x: (sx - v.x) / v.k, y: (sy - v.y) / v.k }
   }
+
+  // ---- node drag (click with <4px movement opens the node) ----
+  const dragRef = useRef<{ name: string; moved: boolean; startX: number; startY: number } | null>(null)
 
   const onNodeDown = (e: React.PointerEvent<SVGGElement>, name: string): void => {
     e.preventDefault()
+    e.stopPropagation()
     ;(e.target as Element).setPointerCapture(e.pointerId)
     const node = nodesRef.current.get(name)
     if (!node) return
@@ -196,80 +287,187 @@ export function FactoryGraph({
     if (!drag) return
     const node = nodesRef.current.get(drag.name)
     if (!node) return
-    if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 4) drag.moved = true
-    const pt = svgPoint(e)
+    if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 4) {
+      drag.moved = true
+      userInteractedRef.current = true
+    }
+    const pt = toWorld(e.clientX, e.clientY)
     node.x = pt.x
     node.y = pt.y
     alphaRef.current = Math.max(alphaRef.current, 0.3)
     setFrame((f) => f + 1)
   }
-  const onNodeUp = (e: React.PointerEvent<SVGGElement>): void => {
+  const onNodeUp = (e: React.PointerEvent<SVGGElement>, name: string): void => {
     const drag = dragRef.current
     dragRef.current = null
-    if (!drag) return
-    const node = nodesRef.current.get(drag.name)
+    const node = nodesRef.current.get(name)
     if (node) node.dragging = false
-    ;(e.target as Element).releasePointerCapture(e.pointerId)
-    if (!drag.moved) onOpen(drag.name)
+    try {
+      ;(e.target as Element).releasePointerCapture(e.pointerId)
+    } catch {
+      // capture may already be gone
+    }
+    if (drag && !drag.moved) onOpen(name)
   }
 
-  if (artifacts.length === 0) {
-    return (
-      <div className="factory-graph-empty">
-        Nothing to map yet — generated artifacts and their relations appear here as a graph.
-      </div>
-    )
+  // ---- background pan ----
+  const panRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
+  const onBgDown = (e: React.PointerEvent<SVGRectElement>): void => {
+    ;(e.target as Element).setPointerCapture(e.pointerId)
+    panRef.current = { startX: e.clientX, startY: e.clientY, ox: view.x, oy: view.y }
   }
+  const onBgMove = (e: React.PointerEvent<SVGRectElement>): void => {
+    const pan = panRef.current
+    if (!pan) return
+    userInteractedRef.current = true
+    setView((v) => ({ ...v, x: pan.ox + (e.clientX - pan.startX), y: pan.oy + (e.clientY - pan.startY) }))
+  }
+  const onBgUp = (e: React.PointerEvent<SVGRectElement>): void => {
+    panRef.current = null
+    try {
+      ;(e.target as Element).releasePointerCapture(e.pointerId)
+    } catch {
+      // ignore
+    }
+  }
+
+  // ---- wheel zoom (around the pointer) ----
+  // React's onWheel binds a PASSIVE listener, so preventDefault() there is a
+  // no-op (and warns). Bind a native non-passive listener so the page doesn't
+  // scroll while zooming the graph.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e: WheelEvent): void => {
+      e.preventDefault()
+      userInteractedRef.current = true
+      const rect = el.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      setView((v) => {
+        const k = clamp(v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12), MIN_K, MAX_K)
+        const wx = (sx - v.x) / v.k
+        const wy = (sy - v.y) / v.k
+        return { k, x: sx - wx * k, y: sy - wy * k }
+      })
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
 
   const hoverSet = hover ? new Set([hover, ...(neighbours.get(hover) ?? [])]) : null
 
+  // The ref'd container always mounts (even when empty) so the wheel + resize
+  // effects always find a real element to bind to — otherwise scroll-to-zoom
+  // silently breaks on an empty→populated transition.
   return (
     <div className="factory-graph" ref={containerRef}>
-      <svg width={size.w} height={size.h}>
-        {links.map((l) => {
-          const p = nodesRef.current.get(l.a)
-          const q = nodesRef.current.get(l.b)
-          if (!p || !q) return null
-          const lit = hover !== null && (l.a === hover || l.b === hover)
-          return (
-            <line
-              key={`${l.a}-${l.b}`}
-              x1={p.x}
-              y1={p.y}
-              x2={q.x}
-              y2={q.y}
-              className={`factory-graph-link${lit ? ' lit' : ''}${hover && !lit ? ' dim' : ''}`}
-            />
-          )
-        })}
-        {artifacts.map((a) => {
-          const p = nodesRef.current.get(a.name)
-          if (!p) return null
-          const dim = hoverSet !== null && !hoverSet.has(a.name)
-          const r = 7 + Math.min(6, (neighbours.get(a.name)?.size ?? 0) * 1.5)
-          return (
-            <g
-              key={a.name}
-              className={`factory-graph-node kind-${a.kind}${dim ? ' dim' : ''}`}
-              transform={`translate(${p.x},${p.y})`}
-              onPointerDown={(e) => onNodeDown(e, a.name)}
-              onPointerMove={onNodeMove}
-              onPointerUp={onNodeUp}
-              onMouseEnter={() => setHover(a.name)}
-              onMouseLeave={() => setHover(null)}
-            >
-              <circle r={r} />
-              <text y={r + 12}>{a.name}</text>
-              <title>{`${a.kind}: ${a.name}\n${a.description}`}</title>
-            </g>
-          )
-        })}
+      {artifacts.length === 0 ? (
+        <div className="factory-graph-empty">
+          Nothing to map yet — generated artifacts, installed agents and pending suggestions appear
+          here as a graph.
+        </div>
+      ) : (
+        <>
+          <svg width={size.w} height={size.h}>
+        {/* Background pan surface (behind the transformed content). */}
+        <rect
+          x={0}
+          y={0}
+          width={size.w}
+          height={size.h}
+          fill="transparent"
+          onPointerDown={onBgDown}
+          onPointerMove={onBgMove}
+          onPointerUp={onBgUp}
+        />
+        <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+          {links.map((l) => {
+            const p = nodesRef.current.get(l.a)
+            const q = nodesRef.current.get(l.b)
+            if (!p || !q) return null
+            const lit = hover !== null && (l.a === hover || l.b === hover)
+            const pending = pendingNames.has(l.a) || pendingNames.has(l.b)
+            return (
+              <line
+                key={`${l.a}-${l.b}`}
+                x1={p.x}
+                y1={p.y}
+                x2={q.x}
+                y2={q.y}
+                className={`factory-graph-link${lit ? ' lit' : ''}${hover && !lit ? ' dim' : ''}${pending ? ' pending' : ''}`}
+              />
+            )
+          })}
+          {artifacts.map((a) => {
+            const p = nodesRef.current.get(a.name)
+            if (!p) return null
+            const dim = hoverSet !== null && !hoverSet.has(a.name)
+            const r = 7 + Math.min(6, (neighbours.get(a.name)?.size ?? 0) * 1.5)
+            return (
+              <g
+                key={a.name}
+                className={`factory-graph-node kind-${a.kind}${a.pending ? ' pending' : ''}${dim ? ' dim' : ''}`}
+                transform={`translate(${p.x},${p.y})`}
+                onPointerDown={(e) => onNodeDown(e, a.name)}
+                onPointerMove={onNodeMove}
+                onPointerUp={(e) => onNodeUp(e, a.name)}
+                onMouseEnter={() => setHover(a.name)}
+                onMouseLeave={() => setHover(null)}
+              >
+                <circle r={r} />
+                <text y={r + 12}>{a.name}</text>
+                <title>{`${a.pending ? 'suggested ' : ''}${a.kind}: ${a.name}\n${a.description}`}</title>
+              </g>
+            )
+          })}
+        </g>
       </svg>
-      <div className="factory-graph-legend">
-        <span className="kind-chip kind-skill">skill</span>
-        <span className="kind-chip kind-agent">agent</span>
-        <span className="factory-graph-hint">drag to arrange · click a node to open it</span>
+      <div className="factory-graph-toolbar">
+        <button
+          className="btn ghost"
+          title="Zoom in"
+          onClick={() => {
+            userInteractedRef.current = true
+            setView((v) => ({ ...v, k: clamp(v.k * 1.2, MIN_K, MAX_K) }))
+          }}
+        >
+          ＋
+        </button>
+        <button
+          className="btn ghost"
+          title="Zoom out"
+          onClick={() => {
+            userInteractedRef.current = true
+            setView((v) => ({ ...v, k: clamp(v.k / 1.2, MIN_K, MAX_K) }))
+          }}
+        >
+          －
+        </button>
+        <button
+          className="btn ghost"
+          title="Fit to view"
+          onClick={() => {
+            // Explicit fit re-arms auto-follow so the graph tracks future growth again.
+            userInteractedRef.current = false
+            fit()
+          }}
+        >
+          ⤢
+        </button>
       </div>
+      <div className="factory-graph-stats">
+        {counts.skills} skills · {counts.agents} agents
+        {counts.ghosts > 0 && ` · ${counts.ghosts} suggested`} · {counts.links} links
+      </div>
+          <div className="factory-graph-legend">
+            <span className="kind-chip kind-skill">skill</span>
+            <span className="kind-chip kind-agent">agent</span>
+            {counts.ghosts > 0 && <span className="kind-chip kind-suggestion">suggested</span>}
+            <span className="factory-graph-hint">scroll to zoom · drag to arrange · click to open</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }

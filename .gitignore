@@ -24,3 +24,8 @@ Thumbs.db
 # local env
 .env
 .env.local
+
+# stray local agent/run artifacts
+.vibe.yaml
+badge.svg
+report.md

@@ -432,22 +432,38 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
 function FactoryEntry(): JSX.Element {
   const view = useStore((s) => s.view)
   const openFactory = useStore((s) => s.openFactory)
+  const openSuggestions = useStore((s) => s.openFactorySuggestions)
   const busy = useStore((s) =>
     s.factoryRuns.some(
       (r) => r.status === 'running' || r.candidates.some((c) => c.status === 'authoring')
     )
   )
+  const suggestionCount = useStore(
+    (s) =>
+      (s.factoryState.suggestions ?? []).filter(
+        (x) => x.status === 'open' || x.status === 'error'
+      ).length
+  )
   const active = view === 'factory'
   return (
     <div
       className={`session-entry conductor-entry${active ? ' active' : ''}`}
-      title="Agent & Skill Factory — generate skills/agents from connected MCP sources"
-      onClick={openFactory}
+      title={
+        suggestionCount > 0
+          ? `Agent & Skill Factory — ${suggestionCount} new suggestion${suggestionCount === 1 ? '' : 's'} to review`
+          : 'Agent & Skill Factory — generate skills/agents from connected MCP sources'
+      }
+      onClick={() => (suggestionCount > 0 ? openSuggestions() : openFactory())}
     >
-      <span className={`glyph${busy ? ' status-working' : ''}`}>{busy ? '⟳' : '⚒'}</span>
+      <span className={`glyph factory-glyph${busy ? ' status-working' : ''}`}>
+        {busy ? '⟳' : '⚒'}
+        {suggestionCount > 0 && (
+          <span className="queue-badge factory-suggest-badge">{suggestionCount}</span>
+        )}
+      </span>
       <div className="session-meta">
         <span className="session-name">Factory</span>
-        <span className="session-folder">Agents &amp; skills · from MCP</span>
+        <span className="session-folder">Agents &amp; skills · self-growing</span>
       </div>
     </div>
   )

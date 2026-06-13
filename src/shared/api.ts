@@ -12,6 +12,7 @@ import type {
   FactoryRun,
   FactorySource,
   FactoryState,
+  FactorySuggestion,
   Feature,
   FileContent,
   FsEvent,
@@ -278,10 +279,20 @@ export interface Api {
   addFactoryLesson(text: string): Promise<void>
   /** Delete one lesson. */
   deleteFactoryLesson(id: string): Promise<void>
-  /** Fired whenever the registry/backlog/lessons change. */
+  /** Author + register the artifact for a self-growth suggestion (the only way one is built). */
+  createFromSuggestion(id: string, kind?: FactoryArtifactKind): Promise<void>
+  /** Dismiss a suggestion without building it. */
+  dismissSuggestion(id: string): Promise<void>
+  /** Current headless-lock state (a scan/author/judge/discovery is running). */
+  getFactoryBusy(): Promise<boolean>
+  /** Fired whenever the registry/backlog/lessons/suggestions change. */
   onFactoryChanged(cb: (state: FactoryState) => void): Unsubscribe
   /** Fired whenever the scan run list changes (phase/candidate updates). */
   onFactoryRuns(cb: (runs: FactoryRun[]) => void): Unsubscribe
+  /** Fired when a new self-growth suggestion arrives (drives the badge/banner). */
+  onFactorySuggestion(cb: (suggestion: FactorySuggestion) => void): Unsubscribe
+  /** Fired when the headless lock flips — lets the UI disable actions that would no-op. */
+  onFactoryBusy(cb: (busy: boolean) => void): Unsubscribe
 
   // installed agents + external agent-factory registry (Factory → Agents tab)
   /** Installed agents (~/.claude/agents + session repos) merged with the external registry. */

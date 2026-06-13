@@ -3,6 +3,7 @@ import { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import {
+  ConductorMessage,
   FactoryArtifact,
   FactoryArtifactKind,
   FactoryAudit,
@@ -10,7 +11,8 @@ import {
   FactoryLesson,
   FactoryRun,
   FactorySource,
-  FactoryState
+  FactoryState,
+  FactorySuggestion
 } from '../shared/types'
 import { readUserMcpServers, scanSkills } from './ClaudeEnv'
 import {
@@ -37,6 +39,41 @@ const MAX_RUNS = 25
 const MAX_TOPICS = 60
 const MAX_LESSONS = 40
 
+// ---- self-growth (suggestions: conversation detector + background timer) ----
+/** Coarse scheduler tick. */
+const TICK_MS = 60_000
+/** Token-spending auto-propose cadence (scans ONE MCP source per pass). */
+const AUTO_PROPOSE_INTERVAL_MS = 6 * 60 * 60_000
+/** Quiet window after launch before any token-spending auto-propose may run, so
+ *  reopening the app after a long gap never fires a headless scan right at boot. */
+const AUTO_PROPOSE_BOOT_GRACE_MS = 10 * 60_000
+/** Collapse a burst of conductor turns into one judge call. */
+const DETECT_DEBOUNCE_MS = 4_000
+/** A conversation judge is short (no source tools). */
+const DETECT_TIMEOUT_MS = 45_000
+/** Don't judge until at least this many turns happened (skip idle chit-chat)… */
+const MIN_TURNS_SINCE_DETECT = 3
+/** …unless this long has passed since the last judge. */
+const DETECT_MIN_INTERVAL_MS = 20 * 60_000
+/** How many recent conductor turns the judge reads. */
+const DETECT_HISTORY_TURNS = 6
+/** Largest chat excerpt (chars) carried on a suggestion for later authoring. */
+const DETECT_CONTEXT_MAX = 6000
+/** Drop conversation suggestions below this confidence. */
+const MIN_CONFIDENCE = 0.6
+/** Cap suggestions absorbed from a single judge call. */
+const MAX_SUGGESTIONS_PER_DETECT = 2
+/** Daily cap on conversation judge calls (token budget). */
+const JUDGE_DAILY_CAP = 12
+/** Total persisted suggestions (open + history) before oldest terminal ones are pruned. */
+const MAX_SUGGESTIONS = 60
+
+/** Local YYYY-M-D key for the daily judge-call budget. */
+function localDay(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
 /** Friendlier labels for well-known connector server keys (best-effort). */
 const KNOWN_LABELS: Record<string, string> = {
   claude_ai_Atlassian: 'Atlassian (Confluence / Jira)',
@@ -61,15 +98,40 @@ export class FactoryService {
   private state: FactoryState
   private runs: FactoryRun[] = []
   private sources: FactorySource[] | null = null
-  /** The in-flight agent child, so dispose()/cancel() can kill it. */
+  /** The in-flight cancellable agent child (scan/author/judge), so dispose()/cancel() can kill it. */
   private inFlight: ChildProcess | null = null
+  /** Source-discovery child — a SEPARATE slot from `inFlight` so discovery (which
+   *  can run while `busy` is false) never nulls a live scan/author/judge child. */
+  private discoverChild: ChildProcess | null = null
+  /** In-flight discovery promise; concurrent callers join it instead of spawning
+   *  a second discovery agent (the single-headless-child invariant). */
+  private discovering: Promise<FactorySource[]> | null = null
   private busy = false
+  /** Resolves when the current heavy op (scan/author/judge) releases the lock —
+   *  the public listSources() awaits it before starting a discovery agent so the
+   *  two never run concurrently. Null while idle. */
+  private busyPromise: Promise<void> | null = null
+  private busyResolve: (() => void) | null = null
   /** Set by cancel(); the in-flight scan/author reports 'cancelled' instead of 'error'. */
   private cancelRequested = false
+  /** Self-growth background timer; null until start(). */
+  private timer: NodeJS.Timeout | null = null
+  /** Debounce timer for the conversation detector. */
+  private detectTimer: NodeJS.Timeout | null = null
+  /** Claimed synchronously while an auto-propose pass is dispatched (incl. its
+   *  pre-scan discovery await), so the 60s timer can't double-dispatch it. */
+  private autoProposing = false
 
   constructor(private getWin: () => BrowserWindow | null) {
     this.state = this.store.load()
     this.runs = restoreRuns(this.store.loadRuns())
+    // A suggestion caught mid-create when the app closed is settled back to 'open'.
+    for (const s of this.state.suggestions) {
+      if (s.status === 'creating') {
+        s.status = 'open'
+        s.result = undefined
+      }
+    }
   }
 
   getState(): FactoryState {
@@ -81,13 +143,519 @@ export class FactoryService {
   }
 
   dispose(): void {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    if (this.detectTimer) clearTimeout(this.detectTimer)
+    this.detectTimer = null
     try {
       this.inFlight?.kill()
     } catch {
       // already gone
     }
+    try {
+      this.discoverChild?.kill()
+    } catch {
+      // already gone
+    }
     this.inFlight = null
+    this.discoverChild = null
     this.store.saveNow()
+  }
+
+  // ---------- self-growth: background timer ----------
+
+  /** Begin the self-growth loop: an infrequent token-spending auto-propose pass. */
+  start(): void {
+    if (this.timer) return
+    // Defer the first auto-propose to at least AUTO_PROPOSE_BOOT_GRACE_MS after
+    // launch. `lastAutoProposeAt` defaults to 0, so without this a launch after
+    // any >6h gap (incl. a fresh install) would fire a headless scan ~60s in,
+    // with no user action. Clamp the baseline forward so the gate can't open
+    // until the grace window has elapsed, while preserving a recent pass time.
+    const g = this.store.loadGrowth()
+    const earliest = Date.now() - AUTO_PROPOSE_INTERVAL_MS + AUTO_PROPOSE_BOOT_GRACE_MS
+    if (g.lastAutoProposeAt < earliest) {
+      this.store.setGrowth({ ...g, lastAutoProposeAt: earliest })
+    }
+    this.timer = setInterval(() => this.tick(), TICK_MS)
+  }
+
+  private tick(): void {
+    if (this.busy || this.autoProposing) return
+    const g = this.store.loadGrowth()
+    if (Date.now() - g.lastAutoProposeAt >= AUTO_PROPOSE_INTERVAL_MS) {
+      void this.autoProposePass().catch(() => {})
+    }
+  }
+
+  /**
+   * Infrequent token-spending pass: scan the connected MCP source that's gone
+   * longest without a scan (round-robin), then convert that scan's proposed
+   * candidates into suggestions (never auto-installed). A dedicated
+   * `autoProposing` guard (claimed synchronously) prevents a second tick from
+   * dispatching while this one is parked in discovery; the budget/rotation slot
+   * is only consumed when a scan actually runs, and we harvest exactly the run
+   * this pass produced (never a stale older one).
+   */
+  private async autoProposePass(): Promise<void> {
+    if (this.busy || this.autoProposing) return
+    this.autoProposing = true
+    try {
+      const sources = await this.listSources().catch(() => [] as FactorySource[])
+      if (sources.length === 0) return
+      const g = this.store.loadGrowth()
+      const next = [...sources].sort(
+        (a, b) => (g.lastScannedAt[a.server] ?? 0) - (g.lastScannedAt[b.server] ?? 0)
+      )[0]
+      const runId = await this.scan(
+        next.server,
+        'Automated background scan: surface only a few high-value, clearly groundable candidates.'
+      )
+      // scan() returns null when it bailed on the busy guard (no tokens spent) —
+      // only consume the rotation slot + 6h budget when a scan really ran.
+      if (!runId) return
+      const g2 = this.store.loadGrowth()
+      this.store.setGrowth({
+        ...g2,
+        lastScannedAt: { ...g2.lastScannedAt, [next.server]: Date.now() },
+        lastAutoProposeAt: Date.now()
+      })
+      const run = this.runs.find((r) => r.id === runId)
+      if (run && run.status === 'done') this.absorbScanSuggestions(run)
+    } finally {
+      this.autoProposing = false
+    }
+  }
+
+  private absorbScanSuggestions(run: FactoryRun): void {
+    let newest: FactorySuggestion | null = null
+    let added = 0
+    for (const c of run.candidates) {
+      if (c.status !== 'proposed') continue
+      if (this.suggestionDuplicate(c.kind, c.name, c.description)) continue
+      newest = this.enqueueSuggestion({
+        suggestedKind: c.kind,
+        name: c.name,
+        title: c.description,
+        description: c.description,
+        rationale: c.rationale,
+        origin: 'scan',
+        sourceRef: run.source,
+        sourceLabel: run.sourceLabel,
+        source: run.source,
+        context: run.summary,
+        topics: c.topics,
+        keywords: c.keywords,
+        existing: c.existing,
+        confidence: 0.8
+      })
+      added++
+    }
+    if (added > 0) {
+      this.persist()
+      if (newest) this.getWin()?.webContents.send('factory:suggestion', newest)
+    }
+  }
+
+  // ---------- self-growth: conversation detector ----------
+
+  /**
+   * Called (fire-and-forget) after each completed Conductor turn. Debounced and
+   * heavily rate-limited; schedules a short headless judge that may queue
+   * skill/agent suggestions. Never blocks or throws into the caller.
+   */
+  considerConversation(messages: ConductorMessage[]): void {
+    const g = this.store.loadGrowth()
+    this.store.setGrowth({ ...g, turnsSinceDetect: (g.turnsSinceDetect ?? 0) + 1 })
+    if (this.detectTimer) clearTimeout(this.detectTimer)
+    this.detectTimer = setTimeout(() => {
+      this.detectTimer = null
+      void this.maybeRunJudge(messages).catch(() => {})
+    }, DETECT_DEBOUNCE_MS)
+  }
+
+  private async maybeRunJudge(messages: ConductorMessage[]): Promise<void> {
+    // Also bail while a discovery is in flight: discovery is its own headless
+    // child outside the `busy` lock, and we keep to one agent at a time.
+    if (this.busy || this.discovering) return
+    const g = this.store.loadGrowth()
+    const now = Date.now()
+    if (g.turnsSinceDetect < MIN_TURNS_SINCE_DETECT && now - g.lastDetectAt < DETECT_MIN_INTERVAL_MS) {
+      return
+    }
+    // Snapshot the turn count we're acting on; the judge runs for up to ~45s and
+    // new turns may complete (and increment) during that window. Subtract this
+    // snapshot in the finally instead of zeroing, so concurrent increments survive.
+    const turnsAtStart = g.turnsSinceDetect
+    const day = localDay()
+    const callsToday = g.judgeDay === day ? g.judgeCallsToday : 0
+    if (callsToday >= JUDGE_DAILY_CAP) return
+
+    const recent = messages.filter((m) => !m.pending && m.text?.trim()).slice(-DETECT_HISTORY_TURNS)
+    if (recent.length === 0) return
+
+    this.setBusy(true)
+    this.cancelRequested = false
+    try {
+      const convo = recent
+        .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${m.text.trim()}`)
+        .join('\n\n')
+      const out = await runHeadlessClaude({
+        cwd: process.cwd(),
+        prompt: this.judgePrompt(convo),
+        allowedTools: ['Read'],
+        timeoutMs: DETECT_TIMEOUT_MS,
+        onSpawn: (child) => (this.inFlight = child)
+      })
+      this.absorbChatSuggestions(
+        this.parseJudge(out),
+        recent[recent.length - 1].id,
+        convo.slice(0, DETECT_CONTEXT_MAX)
+      )
+    } catch {
+      // Detector failures are invisible — never surface to the user.
+    } finally {
+      this.inFlight = null
+      this.setBusy(false)
+      const g2 = this.store.loadGrowth()
+      const day2 = localDay()
+      this.store.setGrowth({
+        ...g2,
+        lastDetectAt: Date.now(),
+        turnsSinceDetect: Math.max(0, (g2.turnsSinceDetect ?? 0) - turnsAtStart),
+        judgeDay: day2,
+        judgeCallsToday: (g2.judgeDay === day2 ? g2.judgeCallsToday : 0) + 1
+      })
+    }
+  }
+
+  private judgePrompt(convo: string): string {
+    const existing = this.existingNamesSnapshot()
+    return [
+      'You are the talent scout for an Agent & Skill Factory inside Maestro. You read a recent',
+      "slice of the user's Conductor chat and decide whether it reveals a REUSABLE workflow or",
+      'body of knowledge worth capturing as a Claude Code SKILL (a repeatable procedure the user',
+      'invokes) or SUB-AGENT (a specialist for one bounded domain).',
+      '',
+      'Be conservative: most chats are one-offs and should yield NOTHING. Only suggest when the',
+      'same kind of task would plausibly recur. Never suggest something that overlaps an artifact',
+      'that already exists below — neither a near-duplicate name nor the same purpose.',
+      '',
+      `Artifacts that already exist (do NOT duplicate):\n${JSON.stringify(existing, null, 2)}`,
+      '',
+      'Recent Conductor conversation (oldest first):',
+      convo,
+      '',
+      'Respond with ONLY one JSON object — no markdown fences, no prose:',
+      '{"suggest": <true|false>,',
+      ' "items": [{"kind":"skill|agent",',
+      '   "name":"<kebab-case-slug>",',
+      '   "title":"<short human title>",',
+      '   "description":"<one line: when to use it>",',
+      '   "rationale":"<why this conversation shows it would recur>",',
+      '   "confidence": <0..1>}]}',
+      'Return {"suggest": false, "items": []} when nothing is worth capturing.'
+    ].join('\n')
+  }
+
+  /** Existing skills/agents (registered + on-disk), for judge prompts and dedupe. */
+  private existingNamesSnapshot(): { kind: string; name: string; description: string }[] {
+    return [
+      ...this.state.artifacts.map((a) => ({ kind: a.kind, name: a.name, description: a.description })),
+      ...scanSkills().map((s) => ({ kind: 'skill', name: s.name, description: s.description ?? '' })),
+      ...scanAgents().map((a) => ({ kind: 'agent', name: a.name, description: a.description ?? '' }))
+    ]
+  }
+
+  private parseJudge(out: string): {
+    kind: FactoryArtifactKind
+    name: string
+    title: string
+    description: string
+    rationale: string
+    confidence: number
+  }[] {
+    const parsed = extractJson(out) as { suggest?: unknown; items?: unknown } | null
+    if (!parsed || parsed.suggest === false) return []
+    const raw = Array.isArray(parsed.items) ? parsed.items : []
+    const items: {
+      kind: FactoryArtifactKind
+      name: string
+      title: string
+      description: string
+      rationale: string
+      confidence: number
+    }[] = []
+    for (const r of raw) {
+      if (!r || typeof r !== 'object') continue
+      const o = r as Record<string, unknown>
+      const kind: FactoryArtifactKind = o.kind === 'agent' ? 'agent' : 'skill'
+      const name = slugify(String(o.name ?? ''))
+      const description = String(o.description ?? '').trim()
+      if (!name || !description) continue
+      let confidence = Number(o.confidence)
+      if (!Number.isFinite(confidence)) confidence = 0
+      items.push({
+        kind,
+        name,
+        title: String(o.title ?? description).trim() || description,
+        description,
+        rationale: String(o.rationale ?? '').trim(),
+        confidence: Math.max(0, Math.min(1, confidence))
+      })
+    }
+    return items
+  }
+
+  private absorbChatSuggestions(
+    items: { kind: FactoryArtifactKind; name: string; title: string; description: string; rationale: string; confidence: number }[],
+    sourceMsgId: string,
+    context: string
+  ): void {
+    let newest: FactorySuggestion | null = null
+    let added = 0
+    for (const it of items) {
+      if (added >= MAX_SUGGESTIONS_PER_DETECT) break
+      if (it.confidence < MIN_CONFIDENCE) continue
+      if (this.suggestionDuplicate(it.kind, it.name, it.title)) continue
+      newest = this.enqueueSuggestion({
+        suggestedKind: it.kind,
+        name: it.name,
+        title: it.title,
+        description: it.description,
+        rationale: it.rationale,
+        origin: 'chat',
+        sourceRef: sourceMsgId,
+        sourceLabel: 'Maestro chat',
+        source: null,
+        context,
+        topics: [],
+        keywords: [],
+        existing: null,
+        confidence: it.confidence
+      })
+      added++
+    }
+    if (added > 0) {
+      this.persist()
+      if (newest) this.getWin()?.webContents.send('factory:suggestion', newest)
+    }
+  }
+
+  // ---------- self-growth: suggestion queue ----------
+
+  private enqueueSuggestion(
+    input: Omit<FactorySuggestion, 'id' | 'status' | 'createdAt' | 'updatedAt'>
+  ): FactorySuggestion {
+    const now = Date.now()
+    const s: FactorySuggestion = { id: randomUUID(), status: 'open', createdAt: now, updatedAt: now, ...input }
+    this.state.suggestions.push(s)
+    this.capSuggestions()
+    return s
+  }
+
+  /**
+   * Keep the queue bounded by pruning ONLY the oldest terminal (created/dismissed)
+   * entries. Actionable suggestions (open/creating/error) are never dropped — if
+   * those alone exceed the cap we let the queue run over rather than silently
+   * losing work the user still has to act on.
+   */
+  private capSuggestions(): void {
+    if (this.state.suggestions.length <= MAX_SUGGESTIONS) return
+    const terminalOldestFirst = this.state.suggestions
+      .filter((s) => s.status === 'created' || s.status === 'dismissed')
+      .sort((a, b) => a.updatedAt - b.updatedAt)
+    const drop = new Set<string>()
+    for (const s of terminalOldestFirst) {
+      if (this.state.suggestions.length - drop.size <= MAX_SUGGESTIONS) break
+      drop.add(s.id)
+    }
+    if (drop.size > 0) {
+      this.state.suggestions = this.state.suggestions.filter((x) => !drop.has(x.id))
+    }
+  }
+
+  /**
+   * Deterministic, token-free dedupe: is this idea already installed/registered,
+   * or already in the open queue, or semantically the same as one of those?
+   */
+  private suggestionDuplicate(kind: FactoryArtifactKind, slug: string, title: string): 'artifact' | 'suggestion' | null {
+    const key = `${kind}:${slug}`
+    const installed = new Set([
+      ...this.state.artifacts.map((a) => `${a.kind}:${a.name}`),
+      ...listInstalled().map((i) => `${i.kind}:${i.name}`)
+    ])
+    if (installed.has(key)) return 'artifact'
+
+    const words = (t: string): Set<string> =>
+      new Set(t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean))
+    const jaccard = (a: Set<string>, b: Set<string>): number => {
+      if (a.size === 0 || b.size === 0) return 0
+      let inter = 0
+      for (const w of a) if (b.has(w)) inter++
+      return inter / (a.size + b.size - inter)
+    }
+    const t = words(title)
+    for (const s of this.state.suggestions) {
+      if (s.status !== 'open' && s.status !== 'creating') continue
+      if (s.suggestedKind === kind && s.name === slug) return 'suggestion'
+      if (jaccard(t, words(s.title)) >= 0.6) return 'suggestion'
+    }
+    for (const a of this.state.artifacts) {
+      if (jaccard(t, words(`${a.name} ${a.description}`)) >= 0.6) return 'artifact'
+    }
+    return null
+  }
+
+  /** Author + write + register the artifact for a suggestion (the only way one is built). */
+  async createFromSuggestion(id: string, kind?: FactoryArtifactKind): Promise<void> {
+    const s = this.state.suggestions.find((x) => x.id === id)
+    if (!s || (s.status !== 'open' && s.status !== 'error')) return
+    if (this.busy) return
+    const useKind: FactoryArtifactKind = kind ?? s.suggestedKind
+    this.setBusy(true)
+    this.cancelRequested = false
+    s.status = 'creating'
+    // Persist the kind the user actually clicked now, not just on success: if the
+    // app is quit mid-create (creating→open on boot) the suggestion must remember
+    // the chosen kind rather than reverting to the originally-suggested one.
+    s.suggestedKind = useKind
+    s.result = undefined
+    s.updatedAt = Date.now()
+    this.persist()
+
+    try {
+      // Don't let the author child overlap an in-flight discovery (its own headless
+      // agent): wait it out so we keep to one agent at a time. The scan-origin path
+      // below also awaits listSources(), which joins the same discovery.
+      await this.discovering?.catch(() => {})
+      const slug = slugify(s.name)
+      let authored: ReturnType<FactoryService['parseAuthor']>
+      if (s.origin === 'scan') {
+        const sources = await this.discoverCache().catch(() => [] as FactorySource[])
+        const source =
+          sources.find((x) => x.server === s.source) ??
+          ({ server: s.source ?? 'mcp', label: s.sourceLabel, toolPrefix: `mcp__${s.source ?? ''}`, readTools: [] } as FactorySource)
+        const candidate: FactoryCandidate = {
+          id: s.id,
+          kind: useKind,
+          name: slug,
+          description: s.description,
+          topics: s.topics,
+          keywords: s.keywords,
+          rationale: s.rationale,
+          existing: s.existing,
+          status: 'authoring'
+        }
+        const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
+        const out = await runHeadlessClaude({
+          cwd: process.cwd(),
+          prompt: this.authorPrompt(source, candidate, slug),
+          allowedTools,
+          timeoutMs: AUTHOR_TIMEOUT_MS,
+          onSpawn: (child) => (this.inFlight = child)
+        })
+        authored = this.parseAuthor(out)
+      } else {
+        const out = await runHeadlessClaude({
+          cwd: process.cwd(),
+          prompt: this.conversationAuthorPrompt(s, useKind, slug),
+          allowedTools: ['Read', 'Grep', 'Glob'],
+          timeoutMs: AUTHOR_TIMEOUT_MS,
+          onSpawn: (child) => (this.inFlight = child)
+        })
+        authored = this.parseAuthor(out)
+      }
+      if (!authored) throw new Error('The author agent did not return usable file content.')
+
+      const filePath =
+        useKind === 'skill' ? writeSkill(slug, authored.content) : writeAgent(slug, authored.content)
+      this.registerArtifact({
+        kind: useKind,
+        name: slug,
+        filePath,
+        description: authored.description || s.description,
+        topics: authored.topics.length ? authored.topics : s.topics,
+        keywords: authored.keywords.length ? authored.keywords : s.keywords,
+        source: s.origin === 'scan' ? (s.source ?? 'scan') : 'conversation',
+        related: authored.related
+      })
+      const artifact = this.state.artifacts.find((a) => a.kind === useKind && a.name === slug)
+      s.status = 'created'
+      s.artifactId = artifact?.id
+      s.filePath = filePath
+      s.result = `Wrote ${useKind} to ${filePath}`
+    } catch (err) {
+      if (this.cancelRequested) {
+        s.status = 'open'
+        s.result = undefined
+      } else {
+        s.status = 'error'
+        s.result = (err as Error).message || String(err)
+      }
+    } finally {
+      s.updatedAt = Date.now()
+      this.inFlight = null
+      this.setBusy(false)
+      this.persist()
+    }
+  }
+
+  /** Dismiss a suggestion without building it (kept as history; may resurface later). */
+  dismissSuggestion(id: string): void {
+    const s = this.state.suggestions.find((x) => x.id === id)
+    if (!s || (s.status !== 'open' && s.status !== 'error')) return
+    s.status = 'dismissed'
+    s.updatedAt = Date.now()
+    this.persist()
+  }
+
+  private conversationAuthorPrompt(s: FactorySuggestion, kind: FactoryArtifactKind, slug: string): string {
+    const related = this.state.artifacts.map((a) => ({ name: a.name, kind: a.kind, description: a.description }))
+    const lessons = this.state.lessons.map((l) => l.text)
+    const isSkill = kind === 'skill'
+    return [
+      `You are authoring a Claude Code ${isSkill ? 'SKILL' : 'SUB-AGENT'} that captures a reusable`,
+      'workflow the user demonstrated in a Maestro Conductor conversation. You run unattended.',
+      '',
+      `Target artifact:\n${JSON.stringify({ kind, name: slug, description: s.description, topics: s.topics, rationale: s.rationale }, null, 2)}`,
+      '',
+      'The conversation that motivated this artifact — capture the GENERAL, reusable procedure it',
+      'shows; strip one-off specifics (particular file names, ids, values) and keep the repeatable',
+      'method:',
+      s.context || '(no excerpt was captured; rely on the target description above)',
+      '',
+      'Write the COMPLETE file content as Markdown with a YAML frontmatter block.',
+      isSkill
+        ? [
+            'For a SKILL the file is SKILL.md. Frontmatter MUST be exactly:',
+            '---',
+            `name: ${slug}`,
+            'description: <one line describing WHEN to use this skill>',
+            '---',
+            'Then the body: a focused, step-by-step procedure the agent can follow.'
+          ].join('\n')
+        : [
+            'For a SUB-AGENT the file is an agent definition. Frontmatter MUST be exactly:',
+            '---',
+            `name: ${slug}`,
+            'description: <one line: when to route to this agent — be specific with trigger terms>',
+            'model: claude-sonnet-4-6',
+            '---',
+            "Then the body: the agent's system prompt — its scope, what it knows, and what it does NOT cover."
+          ].join('\n'),
+      '',
+      `Other artifacts that exist (name any genuinely related):\n${JSON.stringify(related, null, 2)}`,
+      lessons.length ? `\nLessons learned (respect these):\n- ${lessons.join('\n- ')}` : '',
+      '',
+      'Respond with ONLY one JSON object — no markdown fences around the whole object, no prose:',
+      '{"content":"<the FULL file content, frontmatter + body, as a single string>",',
+      ' "description":"<final one-line description>",',
+      ' "topics":["..."], "keywords":["..."],',
+      ' "related":["<names of related existing artifacts>"]}'
+    ]
+      .filter((l) => l !== '')
+      .join('\n')
   }
 
   /** Cancel the in-flight scan/author agent, if any (the run reports 'cancelled'). */
@@ -114,25 +682,50 @@ export class FactoryService {
    * connectors are not in ~/.claude.json, so a no-tool headless agent reports
    * what it can see; we merge that with the user-scope servers from
    * ~/.claude.json. Cached for the app run; `refresh` forces a re-discovery.
+   *
+   * PUBLIC entry point (IPC / renderer refresh / auto-propose pre-scan): if a
+   * heavy op holds the lock, WAIT for it before starting a discovery agent, so
+   * we never run two headless `claude -p` children at once. Lock-holders
+   * (scan/approve/createFromSuggestion) must call discoverCache() instead — they
+   * already hold the lock and would otherwise wait on themselves (deadlock).
    */
   async listSources(refresh = false): Promise<FactorySource[]> {
     if (this.sources && !refresh) return this.sources
-    const discovered = await this.discoverSources().catch(() => [] as FactorySource[])
-    const byKey = new Map<string, FactorySource>()
-    for (const s of discovered) byKey.set(s.server, s)
-    // Merge user-scope servers from ~/.claude.json (e.g. github) if not reported.
-    for (const m of readUserMcpServers()) {
-      if (!byKey.has(m.name)) {
-        byKey.set(m.name, {
-          server: m.name,
-          label: KNOWN_LABELS[m.name] ?? m.name,
-          toolPrefix: `mcp__${m.name}`,
-          readTools: []
-        })
+    while (this.busy && this.busyPromise) await this.busyPromise
+    return this.discoverCache(refresh)
+  }
+
+  /**
+   * The actual cached/memoized discovery, with NO busy-wait. Safe to call from a
+   * lock-holder because discovery runs before that op spawns its own child, so
+   * only one headless child is ever alive. Concurrent callers join one discovery.
+   */
+  private discoverCache(refresh = false): Promise<FactorySource[]> {
+    if (this.sources && !refresh) return Promise.resolve(this.sources)
+    if (this.discovering) return this.discovering
+    this.discovering = (async () => {
+      try {
+        const discovered = await this.discoverSources().catch(() => [] as FactorySource[])
+        const byKey = new Map<string, FactorySource>()
+        for (const s of discovered) byKey.set(s.server, s)
+        // Merge user-scope servers from ~/.claude.json (e.g. github) if not reported.
+        for (const m of readUserMcpServers()) {
+          if (!byKey.has(m.name)) {
+            byKey.set(m.name, {
+              server: m.name,
+              label: KNOWN_LABELS[m.name] ?? m.name,
+              toolPrefix: `mcp__${m.name}`,
+              readTools: []
+            })
+          }
+        }
+        this.sources = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
+        return this.sources
+      } finally {
+        this.discovering = null
       }
-    }
-    this.sources = [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
-    return this.sources
+    })()
+    return this.discovering
   }
 
   private async discoverSources(): Promise<FactorySource[]> {
@@ -156,13 +749,15 @@ export class FactoryService {
       '{"servers":[{"server":"...","label":"...","canRead":true,"readTools":["mcp__..._..."]}]}'
     ].join('\n')
 
+    // Discovery uses its OWN child slot, never the shared `inFlight`, so its
+    // completion can't null out a concurrently-running scan/author/judge child.
     const out = await runHeadlessClaude({
       cwd: process.cwd(),
       prompt,
       allowedTools: ['Read'],
       timeoutMs: DISCOVER_TIMEOUT_MS,
-      onSpawn: (child) => (this.inFlight = child)
-    }).finally(() => (this.inFlight = null))
+      onSpawn: (child) => (this.discoverChild = child)
+    }).finally(() => (this.discoverChild = null))
 
     const parsed = extractJson(out) as { servers?: unknown } | null
     const list = Array.isArray(parsed?.servers) ? parsed.servers : []
@@ -187,32 +782,40 @@ export class FactoryService {
 
   // ---------- scan (phase 1) ----------
 
-  /** Explore a source and propose skill/agent candidates. */
-  async scan(serverKey: string, guidance: string): Promise<void> {
-    if (this.busy) return
-    const sources = await this.listSources()
-    const source = sources.find((s) => s.server === serverKey)
-    if (!source) throw new Error(`Unknown source: ${serverKey}`)
-    this.busy = true
+  /**
+   * Explore a source and propose skill/agent candidates. Claims the single
+   * `busy` lock SYNCHRONOUSLY (before any await) so two headless agents can
+   * never run at once. Returns the created run's id, or null if it bailed on
+   * the busy guard (no run, no tokens spent) — callers (auto-propose) use this
+   * to harvest exactly this run and to only consume budget when a scan ran.
+   * Throws (releasing the lock) only for an unknown source / discovery failure.
+   */
+  async scan(serverKey: string, guidance: string): Promise<string | null> {
+    if (this.busy) return null
+    this.setBusy(true)
     this.cancelRequested = false
-
-    const run: FactoryRun = {
-      id: randomUUID(),
-      source: source.server,
-      sourceLabel: source.label,
-      guidance: guidance.trim(),
-      startedAt: Date.now(),
-      finishedAt: null,
-      status: 'running',
-      phase: 'discovering',
-      candidates: [],
-      summary: ''
-    }
-    this.pushRun(run)
-
+    let run: FactoryRun | null = null
     try {
+      // Lock-holder: discover without waiting on our own lock.
+      const sources = await this.discoverCache()
+      const source = sources.find((s) => s.server === serverKey)
+      if (!source) throw new Error(`Unknown source: ${serverKey}`)
+
+      run = {
+        id: randomUUID(),
+        source: source.server,
+        sourceLabel: source.label,
+        guidance: guidance.trim(),
+        startedAt: Date.now(),
+        finishedAt: null,
+        status: 'running',
+        phase: 'discovering',
+        candidates: [],
+        summary: ''
+      }
+      this.pushRun(run)
+
       const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
-      run.phase = 'discovering'
       this.broadcastRuns()
       const out = await runHeadlessClaude({
         cwd: process.cwd(),
@@ -228,15 +831,25 @@ export class FactoryService {
       run.status = 'done'
       this.absorbTopics(parsed.newTopics, source.server)
     } catch (err) {
-      run.status = this.cancelRequested ? 'cancelled' : 'error'
-      run.phase = 'done'
-      run.summary = this.cancelRequested ? 'Cancelled.' : (err as Error).message || String(err)
+      if (run) {
+        run.status = this.cancelRequested ? 'cancelled' : 'error'
+        run.phase = 'done'
+        run.summary = this.cancelRequested ? 'Cancelled.' : (err as Error).message || String(err)
+      } else {
+        // Unknown source / discovery failure before a run existed — release and rethrow.
+        this.inFlight = null
+        this.setBusy(false)
+        throw err
+      }
     } finally {
-      run.finishedAt = Date.now()
-      this.inFlight = null
-      this.busy = false
-      this.broadcastRuns()
+      if (run) {
+        run.finishedAt = Date.now()
+        this.inFlight = null
+        this.setBusy(false)
+        this.broadcastRuns()
+      }
     }
+    return run ? run.id : null
   }
 
   private scanPrompt(source: FactorySource, guidance: string): string {
@@ -344,7 +957,7 @@ export class FactoryService {
     const candidate = run?.candidates.find((c) => c.id === candidateId)
     if (!run || !candidate || (candidate.status !== 'proposed' && candidate.status !== 'error')) return
     if (this.busy) return
-    this.busy = true
+    this.setBusy(true)
     this.cancelRequested = false
     candidate.status = 'authoring'
     candidate.result = undefined
@@ -352,7 +965,7 @@ export class FactoryService {
 
     try {
       const source =
-        (await this.listSources()).find((s) => s.server === run.source) ??
+        (await this.discoverCache()).find((s) => s.server === run.source) ??
         ({ server: run.source, label: run.sourceLabel, toolPrefix: `mcp__${run.source}`, readTools: [] } as FactorySource)
       const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
       const slug = slugify(candidate.name)
@@ -394,7 +1007,7 @@ export class FactoryService {
       }
     } finally {
       this.inFlight = null
-      this.busy = false
+      this.setBusy(false)
       this.broadcastRuns()
       this.broadcastState()
     }
@@ -688,6 +1301,31 @@ export class FactoryService {
 
   private broadcastState(): void {
     this.getWin()?.webContents.send('factory:changed', this.state)
+  }
+
+  /**
+   * Single source of truth for the headless lock. Setting it broadcasts so the
+   * renderer can reflect background work (judge / author / scan) that doesn't
+   * create a visible FactoryRun — preventing buttons that would silently no-op
+   * against the lock from staying enabled.
+   */
+  private setBusy(v: boolean): void {
+    if (this.busy === v) return
+    this.busy = v
+    if (v) {
+      // Fresh gate that an idle-waiter (public listSources) can await.
+      this.busyPromise = new Promise<void>((resolve) => (this.busyResolve = resolve))
+    } else {
+      this.busyResolve?.()
+      this.busyResolve = null
+      this.busyPromise = null
+    }
+    this.getWin()?.webContents.send('factory:busy', v)
+  }
+
+  /** Current headless-lock state (for the initial renderer fetch). */
+  isBusy(): boolean {
+    return this.busy
   }
 
   private broadcastRuns(): void {

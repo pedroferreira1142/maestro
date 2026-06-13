@@ -12,6 +12,8 @@ import type {
   FactoryRun,
   FactorySource,
   FactoryState,
+  FactorySuggestion,
+  FactoryTab,
   Feature,
   FsEvent,
   RepoCategory,
@@ -235,6 +237,13 @@ interface AppStore {
   factoryRuns: FactoryRun[]
   /** Registry↔disk reconciliation snapshot (missing files + unregistered artifacts on disk). */
   factoryAudit: FactoryAudit | null
+  /** Deep-link request for which Factory tab to show; consumed by FactoryPane. */
+  factoryTab: FactoryTab | null
+  /** The latest just-arrived self-growth suggestion, shown as a banner (auto-clears). */
+  suggestionBanner: FactorySuggestion | null
+  /** True while the factory runs any headless work (scan/author/judge/discovery);
+   *  mirrors the main-process lock so the UI can disable actions that would no-op. */
+  factoryBusy: boolean
   /** Installed agents merged with the external agent-factory registry (Agents tab). */
   agentsSnapshot: AgentsSnapshot | null
   /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
@@ -409,6 +418,20 @@ interface AppStore {
   clearConductor(): Promise<void>
   /** Switch the main area to the Agent & Skill Factory. */
   openFactory(): void
+  /** Open the Factory on the Suggestions tab. */
+  openFactorySuggestions(): void
+  /** Consume the deep-link tab request (FactoryPane calls this after applying it). */
+  clearFactoryTab(): void
+  /** Author + register a suggestion as the given kind (defaults to the suggested kind). */
+  createFromSuggestion(id: string, kind?: FactoryArtifactKind): Promise<void>
+  /** Dismiss a suggestion without building it. */
+  dismissSuggestion(id: string): Promise<void>
+  /** Show the just-arrived suggestion as a banner (auto-clears after a few seconds). */
+  showSuggestionBanner(suggestion: FactorySuggestion): void
+  /** Clear the suggestion banner. */
+  dismissSuggestionBanner(): void
+  /** Mirror the main-process headless lock (pushed from main on every flip). */
+  setFactoryBusy(busy: boolean): void
   /** Load the factory registry + runs (and kick off source discovery). */
   loadFactory(): Promise<void>
   /** (Re)discover the connected MCP sources. */
@@ -461,6 +484,12 @@ const NOTICE_MS = 2000
 /** Identifies the latest showNotice call, so only it clears the message. */
 let noticeNonce = 0
 
+/** How long the Factory suggestion banner stays before auto-clearing. */
+const SUGGEST_BANNER_MS = 10000
+
+/** Identifies the latest suggestion banner, so only it clears itself. */
+let bannerNonce = 0
+
 /** Default active tab for a session: its persisted active terminal, else first. */
 function defaultActive(session: SessionInfo): string {
   return session.config.activeTerminalId ?? session.terminals[0]?.config.id ?? 'terminal'
@@ -503,9 +532,12 @@ export const useStore = create<AppStore>()((set, get) => ({
   conductorTagId: null,
   factorySources: [],
   factorySourcesLoading: false,
-  factoryState: { artifacts: [], topics: [], lessons: [] },
+  factoryState: { artifacts: [], topics: [], lessons: [], suggestions: [] },
   factoryRuns: [],
   factoryAudit: null,
+  factoryTab: null,
+  suggestionBanner: null,
+  factoryBusy: false,
   agentsSnapshot: null,
   notice: null,
   worktreeStates: {},
@@ -1511,14 +1543,51 @@ export const useStore = create<AppStore>()((set, get) => ({
     }
   },
 
+  openFactorySuggestions() {
+    set({ view: 'factory', factoryTab: 'suggestions' })
+    void get().loadFactory()
+    if (get().factorySources.length === 0 && !get().factorySourcesLoading) {
+      void get().loadFactorySources()
+    }
+  },
+
+  clearFactoryTab() {
+    set({ factoryTab: null })
+  },
+
+  async createFromSuggestion(id, kind) {
+    await window.api.createFromSuggestion(id, kind)
+  },
+
+  async dismissSuggestion(id) {
+    await window.api.dismissSuggestion(id)
+  },
+
+  showSuggestionBanner(suggestion) {
+    const nonce = ++bannerNonce
+    set({ suggestionBanner: suggestion })
+    setTimeout(() => {
+      if (bannerNonce === nonce) set({ suggestionBanner: null })
+    }, SUGGEST_BANNER_MS)
+  },
+
+  dismissSuggestionBanner() {
+    set({ suggestionBanner: null })
+  },
+
   async loadFactory() {
-    const [factoryState, factoryRuns] = await Promise.all([
+    const [factoryState, factoryRuns, factoryBusy] = await Promise.all([
       window.api.getFactoryState(),
-      window.api.listFactoryRuns()
+      window.api.listFactoryRuns(),
+      window.api.getFactoryBusy()
     ])
-    set({ factoryState, factoryRuns })
+    set({ factoryState, factoryRuns, factoryBusy })
     void get().loadFactoryAudit()
     void get().loadAgents()
+  },
+
+  setFactoryBusy(busy) {
+    set({ factoryBusy: busy })
   },
 
   async loadFactorySources(refresh = false) {
