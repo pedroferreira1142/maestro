@@ -55,6 +55,11 @@ export class StatusDetector {
     return this.lastOutputAt
   }
 
+  /** ANSI-stripped tail of recent output, for prompt-content checks. */
+  get recentText(): string {
+    return stripAnsi(this.tail)
+  }
+
   /** ms epoch when the current status was continuously entered (watchdog clock). */
   get since(): number {
     return this.statusSince

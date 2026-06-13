@@ -78,6 +78,20 @@ const QUEUE_IDLE_DELAY_MS = 3000
 const AUTO_COMPLETE_IDLE_DELAY_MS = 90_000
 
 /**
+ * Recognises the plan-mode approval prompt claude shows from ExitPlanMode. The
+ * option labels ("auto-accept edits", "keep planning") appear only in that menu,
+ * not in plan prose, so this won't fire on the plan text itself.
+ */
+const PLAN_APPROVAL_RE = /(?:auto-accept edits|keep planning|manually approve)/i
+
+/**
+ * Settle time before Maestro answers the plan-approval prompt, so claude has
+ * finished rendering the menu and the default option ("Yes, and auto-accept
+ * edits") is highlighted before we press Enter.
+ */
+const PLAN_ACCEPT_DELAY_MS = 600
+
+/**
  * How often the stall/runaway watchdog re-checks each claude terminal's elapsed
  * time in its current status against the thresholds. Far finer than the
  * minute-scale thresholds, so a crossed badge/notification appears promptly.
@@ -145,6 +159,11 @@ export class SessionManager {
 
   /** Worktree session ids with an auto-complete action in flight (fires once). */
   private autoCompleteInFlight = new Set<string>()
+
+  /** Worktree session ids whose current plan-approval prompt Maestro has already
+   *  answered — re-armed when claude goes back to working, so each distinct plan
+   *  is auto-accepted exactly once. */
+  private planAccepted = new Set<string>()
 
   /** On-disk tail of each terminal's output, replayed on app restart. */
   private scrollback = new ScrollbackStore()
@@ -426,13 +445,17 @@ export class SessionManager {
       }
     }
 
+    // Plan mode starts claude read-only until it presents a plan; a picked model
+    // pins its claude via --model. Either is absent unless opted into.
+    const claudeArgs: string[] = []
+    if (opts.plan) claudeArgs.push('--permission-mode', 'plan')
+    if (opts.model) claudeArgs.push('--model', opts.model)
     const claudeTerminal: TerminalConfig = {
       id: randomUUID(),
       kind: 'claude',
       title: 'claude',
       order: 0,
-      // A model picked for the task pins its claude via --model; absent = CLI default.
-      claudeArgs: opts.model ? ['--model', opts.model] : [],
+      claudeArgs,
       startMode: 'fresh'
     }
     const config: SessionConfig = {
@@ -453,7 +476,9 @@ export class SessionManager {
         // Default to direct merge; only persist a PR/auto choice when set, so
         // existing tasks and the common case stay exactly as before.
         ...(opts.completion && opts.completion !== 'merge' ? { completion: opts.completion } : {}),
-        ...(opts.autoComplete ? { autoComplete: true } : {})
+        ...(opts.autoComplete ? { autoComplete: true } : {}),
+        ...(opts.plan ? { plan: true } : {}),
+        ...(opts.plan && opts.autoAcceptPlan ? { autoAcceptPlan: true } : {})
       }
     }
     this.state.sessions.push(config)
@@ -717,6 +742,29 @@ export class SessionManager {
   }
 
   /**
+   * Auto-approve the plan-mode prompt for an opted-in task. Runs once per
+   * attention episode (StatusDetector doesn't re-emit a held status, so a single
+   * timer per episode is enough). The regex is evaluated only AFTER a short
+   * settle — the terminal bell that raises attention can land a beat before the
+   * menu text finishes rendering — and only then, if the approval menu is
+   * actually on screen and not already handled, Maestro presses Enter to take
+   * the default option ("Yes, and auto-accept edits"). Non-plan attention
+   * prompts simply don't match the regex and are left for the user.
+   * `planAccepted` is cleared when claude resumes working, so a later plan (it
+   * can re-enter plan mode) is accepted too.
+   */
+  private maybeAutoAcceptPlan(sessionId: string, terminalId: string): void {
+    if (this.planAccepted.has(sessionId)) return
+    setTimeout(() => {
+      const live = this.ptys.get(terminalId)
+      if (!live?.alive || this.planAccepted.has(sessionId)) return
+      if (!PLAN_APPROVAL_RE.test(live.detector.recentText)) return
+      this.planAccepted.add(sessionId)
+      live.write('\r')
+    }, PLAN_ACCEPT_DELAY_MS)
+  }
+
+  /**
    * Run a task's chosen completion automatically. Re-checks the gates that may
    * have changed during the countdown (still a worktree task, claude alive and
    * idle, queue empty, real work present, not already completed), commits
@@ -882,6 +930,7 @@ export class SessionManager {
     this.tokenEff.clearApplied(sessionId)
     this.worktreeWorked.delete(sessionId)
     this.autoCompleteInFlight.delete(sessionId)
+    this.planAccepted.delete(sessionId)
     this.state.sessions = this.state.sessions.filter((s) => s.id !== sessionId)
     if (this.state.activeSessionId === sessionId) this.state.activeSessionId = null
     this.persistence.scheduleSave()
@@ -1334,6 +1383,15 @@ export class SessionManager {
       // gating on 'idle' alone meant auto-merge never fired unattended.
       if (status === 'done' || status === 'idle') this.scheduleAutoComplete(config.id)
       else this.clearAutoCompleteTimer(config.id)
+    }
+
+    // Auto-accept the plan: when a plan-mode task raises attention with the
+    // approval menu on screen, press Enter to take the default ("Yes, and
+    // auto-accept edits"). Re-arm once claude resumes working so a later plan
+    // (claude can re-enter plan mode) is accepted too.
+    if (config.worktree?.autoAcceptPlan) {
+      if (status === 'working') this.planAccepted.delete(config.id)
+      if (status === 'needs-attention') this.maybeAutoAcceptPlan(config.id, terminalId)
     }
 
     if (status !== 'needs-attention') return

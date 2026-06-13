@@ -64,6 +64,14 @@ export interface CreateWorktreeOpts {
   completion?: WorktreeCompletion
   /** When true, Maestro auto-runs `completion` once claude finishes the task. */
   autoComplete?: boolean
+  /** When true, the task's claude launches in plan mode (`--permission-mode plan`). */
+  plan?: boolean
+  /**
+   * When true, Maestro auto-approves the plan-mode prompt once claude presents
+   * its plan, so the task moves from planning into execution unattended.
+   * Only meaningful together with `plan`.
+   */
+  autoAcceptPlan?: boolean
   /** Model alias for the task's claude (`--model <alias>`); absent = CLI default. */
   model?: 'opus' | 'sonnet' | 'haiku'
 }

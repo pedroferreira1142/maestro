@@ -278,6 +278,8 @@ interface AppStore {
     initialPrompt: string
     completion: WorktreeCompletion
     autoComplete: boolean
+    plan: boolean
+    autoAcceptPlan: boolean
   }): Promise<void>
   cancelWorktreeTask(): void
   /** Complete a task per its configured mode: direct merge, or open a PR. */
@@ -769,7 +771,9 @@ export const useStore = create<AppStore>()((set, get) => ({
         baseBranch: opts.baseBranch,
         initialPrompt: opts.initialPrompt || undefined,
         completion: opts.completion,
-        autoComplete: opts.autoComplete
+        autoComplete: opts.autoComplete,
+        plan: opts.plan,
+        autoAcceptPlan: opts.autoAcceptPlan
       })
       await get().refresh()
       get().setActive(info.config.id)

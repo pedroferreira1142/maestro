@@ -160,6 +160,14 @@ export interface WorktreeMeta {
    * manual click. Absent/false = the user triggers completion from the sidebar.
    */
   autoComplete?: boolean
+  /** When true, the task launched in plan mode (`--permission-mode plan`). */
+  plan?: boolean
+  /**
+   * When true, Maestro auto-approves the plan-mode prompt the moment claude
+   * presents its plan (selecting "Yes, and auto-accept edits"), so the task
+   * moves from planning into execution without a manual click. Requires `plan`.
+   */
+  autoAcceptPlan?: boolean
   /**
    * Set once auto-complete has run for this task, so it fires at most once. The
    * value is the kind of completion performed ('merge'|'pr'); absent = not yet
