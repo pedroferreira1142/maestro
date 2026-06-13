@@ -72,6 +72,10 @@ export class ConductorService {
   /** The in-flight planner child, so dispose()/a new turn can cancel it. */
   private inFlight: ChildProcess | null = null
   private busy = false
+  /** Observer fired after each completed (non-error) turn — wired to the Factory's
+   *  self-growth detector in index.ts. A post-construction setter avoids a
+   *  constructor cycle (conductor is built before the factory). */
+  private turnCompleteCb: ((messages: ConductorMessage[]) => void) | null = null
 
   constructor(
     private persistence: Persistence,
@@ -81,6 +85,11 @@ export class ConductorService {
     private getWin: () => BrowserWindow | null
   ) {
     this.messages = this.store.load()
+  }
+
+  /** Register an observer notified after each successful turn (e.g. the Factory). */
+  onTurnComplete(cb: (messages: ConductorMessage[]) => void): void {
+    this.turnCompleteCb = cb
   }
 
   list(): ConductorMessage[] {
@@ -175,6 +184,15 @@ export class ConductorService {
       this.inFlight = null
       this.busy = false
       this.persistAndBroadcast()
+      // Let the Factory consider this completed exchange for skill/agent suggestions.
+      // Fire-and-forget, only on a successful turn, and never break the turn.
+      if (!assistantMsg.error) {
+        try {
+          this.turnCompleteCb?.(this.messages)
+        } catch {
+          // observer errors are not ours to surface
+        }
+      }
     }
   }
 

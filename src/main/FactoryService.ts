@@ -3,14 +3,17 @@ import { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import {
+  ConductorMessage,
   FactoryArtifact,
   FactoryArtifactKind,
   FactoryAudit,
   FactoryCandidate,
+  FactoryInventory,
   FactoryLesson,
   FactoryRun,
   FactorySource,
-  FactoryState
+  FactoryState,
+  FactorySuggestion
 } from '../shared/types'
 import { readUserMcpServers, scanSkills } from './ClaudeEnv'
 import {
@@ -36,6 +39,40 @@ const MAX_RUNS = 25
 /** Bound the backlog/lessons so the snapshot fed back to the agent stays small. */
 const MAX_TOPICS = 60
 const MAX_LESSONS = 40
+
+// ---- self-growth (suggestions: conversation detector + background timer) ----
+/** Coarse scheduler tick. */
+const TICK_MS = 60_000
+/** Cheap, token-free inventory refresh cadence. */
+const INVENTORY_INTERVAL_MS = 5 * 60_000
+/** Token-spending auto-propose cadence (scans ONE MCP source per pass). */
+const AUTO_PROPOSE_INTERVAL_MS = 6 * 60 * 60_000
+/** Collapse a burst of conductor turns into one judge call. */
+const DETECT_DEBOUNCE_MS = 4_000
+/** A conversation judge is short (no source tools). */
+const DETECT_TIMEOUT_MS = 45_000
+/** Don't judge until at least this many turns happened (skip idle chit-chat)… */
+const MIN_TURNS_SINCE_DETECT = 3
+/** …unless this long has passed since the last judge. */
+const DETECT_MIN_INTERVAL_MS = 20 * 60_000
+/** How many recent conductor turns the judge reads. */
+const DETECT_HISTORY_TURNS = 6
+/** Largest chat excerpt (chars) carried on a suggestion for later authoring. */
+const DETECT_CONTEXT_MAX = 6000
+/** Drop conversation suggestions below this confidence. */
+const MIN_CONFIDENCE = 0.6
+/** Cap suggestions absorbed from a single judge call. */
+const MAX_SUGGESTIONS_PER_DETECT = 2
+/** Daily cap on conversation judge calls (token budget). */
+const JUDGE_DAILY_CAP = 12
+/** Total persisted suggestions (open + history) before oldest terminal ones are pruned. */
+const MAX_SUGGESTIONS = 60
+
+/** Local YYYY-M-D key for the daily judge-call budget. */
+function localDay(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
 
 /** Friendlier labels for well-known connector server keys (best-effort). */
 const KNOWN_LABELS: Record<string, string> = {
@@ -66,10 +103,24 @@ export class FactoryService {
   private busy = false
   /** Set by cancel(); the in-flight scan/author reports 'cancelled' instead of 'error'. */
   private cancelRequested = false
+  /** Self-growth background timer; null until start(). */
+  private timer: NodeJS.Timeout | null = null
+  /** Debounce timer for the conversation detector. */
+  private detectTimer: NodeJS.Timeout | null = null
+  private lastInventoryAt = 0
+  /** Last cheap inventory snapshot (broadcast on change). */
+  private inventory: FactoryInventory | null = null
 
   constructor(private getWin: () => BrowserWindow | null) {
     this.state = this.store.load()
     this.runs = restoreRuns(this.store.loadRuns())
+    // A suggestion caught mid-create when the app closed is settled back to 'open'.
+    for (const s of this.state.suggestions) {
+      if (s.status === 'creating') {
+        s.status = 'open'
+        s.result = undefined
+      }
+    }
   }
 
   getState(): FactoryState {
@@ -81,6 +132,10 @@ export class FactoryService {
   }
 
   dispose(): void {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    if (this.detectTimer) clearTimeout(this.detectTimer)
+    this.detectTimer = null
     try {
       this.inFlight?.kill()
     } catch {
@@ -88,6 +143,508 @@ export class FactoryService {
     }
     this.inFlight = null
     this.store.saveNow()
+  }
+
+  // ---------- self-growth: background timer ----------
+
+  /** Begin the self-growth loop: cheap inventory refresh + infrequent auto-propose. */
+  start(): void {
+    if (this.timer) return
+    this.timer = setInterval(() => this.tick(), TICK_MS)
+    // The first inventory refresh is free (filesystem only); auto-propose never runs on boot.
+    this.refreshInventory()
+  }
+
+  private tick(): void {
+    const now = Date.now()
+    if (now - this.lastInventoryAt >= INVENTORY_INTERVAL_MS) this.refreshInventory()
+    if (this.busy) return
+    const g = this.store.loadGrowth()
+    if (now - g.lastAutoProposeAt >= AUTO_PROPOSE_INTERVAL_MS) {
+      void this.autoProposePass().catch(() => {})
+    }
+  }
+
+  /** Last cheap inventory snapshot (installed/registered counts + drift). */
+  getInventory(): FactoryInventory | null {
+    return this.inventory
+  }
+
+  /**
+   * Token-free reconcile of the local picture: how many skills/agents are on
+   * disk vs registered, and registry↔disk drift. Broadcasts only on change.
+   * Never triggers MCP discovery (uses whatever sources are already cached).
+   */
+  private refreshInventory(): void {
+    this.lastInventoryAt = Date.now()
+    try {
+      const installed = listInstalled()
+      const audit = this.audit()
+      const inv: FactoryInventory = {
+        installedCount: installed.length,
+        registeredCount: this.state.artifacts.length,
+        sourceCount: this.sources?.length ?? 0,
+        missingFiles: audit.missingFileIds.length,
+        unregistered: audit.unregistered.length,
+        refreshedAt: Date.now()
+      }
+      const prev = this.inventory
+      const changed =
+        !prev ||
+        prev.installedCount !== inv.installedCount ||
+        prev.registeredCount !== inv.registeredCount ||
+        prev.sourceCount !== inv.sourceCount ||
+        prev.missingFiles !== inv.missingFiles ||
+        prev.unregistered !== inv.unregistered
+      this.inventory = inv
+      if (changed) this.getWin()?.webContents.send('factory:inventory', inv)
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * Infrequent token-spending pass: scan the connected MCP source that's gone
+   * longest without a scan (round-robin), then convert its proposed candidates
+   * into suggestions (never auto-installed). Reuses scan() + its busy guard.
+   */
+  private async autoProposePass(): Promise<void> {
+    if (this.busy) return
+    let sources: FactorySource[]
+    try {
+      sources = await this.listSources()
+    } catch {
+      return
+    }
+    if (sources.length === 0) return
+    const g = this.store.loadGrowth()
+    const next = [...sources].sort(
+      (a, b) => (g.lastScannedAt[a.server] ?? 0) - (g.lastScannedAt[b.server] ?? 0)
+    )[0]
+    this.store.setGrowth({
+      ...g,
+      lastScannedAt: { ...g.lastScannedAt, [next.server]: Date.now() },
+      lastAutoProposeAt: Date.now()
+    })
+    await this.scan(
+      next.server,
+      'Automated background scan: surface only a few high-value, clearly groundable candidates.'
+    )
+    // Harvest the newest finished run for this source into the suggestion queue.
+    const run = this.runs.find((r) => r.source === next.server && r.status === 'done')
+    if (run) this.absorbScanSuggestions(run)
+  }
+
+  private absorbScanSuggestions(run: FactoryRun): void {
+    let newest: FactorySuggestion | null = null
+    let added = 0
+    for (const c of run.candidates) {
+      if (c.status !== 'proposed') continue
+      if (this.suggestionDuplicate(c.kind, c.name, c.description)) continue
+      newest = this.enqueueSuggestion({
+        suggestedKind: c.kind,
+        name: c.name,
+        title: c.description,
+        description: c.description,
+        rationale: c.rationale,
+        origin: 'scan',
+        sourceRef: run.source,
+        sourceLabel: run.sourceLabel,
+        source: run.source,
+        context: run.summary,
+        topics: c.topics,
+        keywords: c.keywords,
+        existing: c.existing,
+        confidence: 0.8
+      })
+      added++
+    }
+    if (added > 0) {
+      this.persist()
+      if (newest) this.getWin()?.webContents.send('factory:suggestion', newest)
+    }
+  }
+
+  // ---------- self-growth: conversation detector ----------
+
+  /**
+   * Called (fire-and-forget) after each completed Conductor turn. Debounced and
+   * heavily rate-limited; schedules a short headless judge that may queue
+   * skill/agent suggestions. Never blocks or throws into the caller.
+   */
+  considerConversation(messages: ConductorMessage[]): void {
+    const g = this.store.loadGrowth()
+    this.store.setGrowth({ ...g, turnsSinceDetect: (g.turnsSinceDetect ?? 0) + 1 })
+    if (this.detectTimer) clearTimeout(this.detectTimer)
+    this.detectTimer = setTimeout(() => {
+      this.detectTimer = null
+      void this.maybeRunJudge(messages).catch(() => {})
+    }, DETECT_DEBOUNCE_MS)
+  }
+
+  private async maybeRunJudge(messages: ConductorMessage[]): Promise<void> {
+    if (this.busy) return
+    const g = this.store.loadGrowth()
+    const now = Date.now()
+    if (g.turnsSinceDetect < MIN_TURNS_SINCE_DETECT && now - g.lastDetectAt < DETECT_MIN_INTERVAL_MS) {
+      return
+    }
+    const day = localDay()
+    const callsToday = g.judgeDay === day ? g.judgeCallsToday : 0
+    if (callsToday >= JUDGE_DAILY_CAP) return
+
+    const recent = messages.filter((m) => !m.pending && m.text?.trim()).slice(-DETECT_HISTORY_TURNS)
+    if (recent.length === 0) return
+
+    this.busy = true
+    this.cancelRequested = false
+    try {
+      const convo = recent
+        .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${m.text.trim()}`)
+        .join('\n\n')
+      const out = await runHeadlessClaude({
+        cwd: process.cwd(),
+        prompt: this.judgePrompt(convo),
+        allowedTools: ['Read'],
+        timeoutMs: DETECT_TIMEOUT_MS,
+        onSpawn: (child) => (this.inFlight = child)
+      })
+      this.absorbChatSuggestions(
+        this.parseJudge(out),
+        recent[recent.length - 1].id,
+        convo.slice(0, DETECT_CONTEXT_MAX)
+      )
+    } catch {
+      // Detector failures are invisible — never surface to the user.
+    } finally {
+      this.inFlight = null
+      this.busy = false
+      const g2 = this.store.loadGrowth()
+      const day2 = localDay()
+      this.store.setGrowth({
+        ...g2,
+        lastDetectAt: Date.now(),
+        turnsSinceDetect: 0,
+        judgeDay: day2,
+        judgeCallsToday: (g2.judgeDay === day2 ? g2.judgeCallsToday : 0) + 1
+      })
+    }
+  }
+
+  private judgePrompt(convo: string): string {
+    const existing = this.existingNamesSnapshot()
+    return [
+      'You are the talent scout for an Agent & Skill Factory inside Maestro. You read a recent',
+      "slice of the user's Conductor chat and decide whether it reveals a REUSABLE workflow or",
+      'body of knowledge worth capturing as a Claude Code SKILL (a repeatable procedure the user',
+      'invokes) or SUB-AGENT (a specialist for one bounded domain).',
+      '',
+      'Be conservative: most chats are one-offs and should yield NOTHING. Only suggest when the',
+      'same kind of task would plausibly recur. Never suggest something that overlaps an artifact',
+      'that already exists below — neither a near-duplicate name nor the same purpose.',
+      '',
+      `Artifacts that already exist (do NOT duplicate):\n${JSON.stringify(existing, null, 2)}`,
+      '',
+      'Recent Conductor conversation (oldest first):',
+      convo,
+      '',
+      'Respond with ONLY one JSON object — no markdown fences, no prose:',
+      '{"suggest": <true|false>,',
+      ' "items": [{"kind":"skill|agent",',
+      '   "name":"<kebab-case-slug>",',
+      '   "title":"<short human title>",',
+      '   "description":"<one line: when to use it>",',
+      '   "rationale":"<why this conversation shows it would recur>",',
+      '   "confidence": <0..1>}]}',
+      'Return {"suggest": false, "items": []} when nothing is worth capturing.'
+    ].join('\n')
+  }
+
+  /** Existing skills/agents (registered + on-disk), for judge prompts and dedupe. */
+  private existingNamesSnapshot(): { kind: string; name: string; description: string }[] {
+    return [
+      ...this.state.artifacts.map((a) => ({ kind: a.kind, name: a.name, description: a.description })),
+      ...scanSkills().map((s) => ({ kind: 'skill', name: s.name, description: s.description ?? '' })),
+      ...scanAgents().map((a) => ({ kind: 'agent', name: a.name, description: a.description ?? '' }))
+    ]
+  }
+
+  private parseJudge(out: string): {
+    kind: FactoryArtifactKind
+    name: string
+    title: string
+    description: string
+    rationale: string
+    confidence: number
+  }[] {
+    const parsed = extractJson(out) as { suggest?: unknown; items?: unknown } | null
+    if (!parsed || parsed.suggest === false) return []
+    const raw = Array.isArray(parsed.items) ? parsed.items : []
+    const items: {
+      kind: FactoryArtifactKind
+      name: string
+      title: string
+      description: string
+      rationale: string
+      confidence: number
+    }[] = []
+    for (const r of raw) {
+      if (!r || typeof r !== 'object') continue
+      const o = r as Record<string, unknown>
+      const kind: FactoryArtifactKind = o.kind === 'agent' ? 'agent' : 'skill'
+      const name = slugify(String(o.name ?? ''))
+      const description = String(o.description ?? '').trim()
+      if (!name || !description) continue
+      let confidence = Number(o.confidence)
+      if (!Number.isFinite(confidence)) confidence = 0
+      items.push({
+        kind,
+        name,
+        title: String(o.title ?? description).trim() || description,
+        description,
+        rationale: String(o.rationale ?? '').trim(),
+        confidence: Math.max(0, Math.min(1, confidence))
+      })
+    }
+    return items
+  }
+
+  private absorbChatSuggestions(
+    items: { kind: FactoryArtifactKind; name: string; title: string; description: string; rationale: string; confidence: number }[],
+    sourceMsgId: string,
+    context: string
+  ): void {
+    let newest: FactorySuggestion | null = null
+    let added = 0
+    for (const it of items) {
+      if (added >= MAX_SUGGESTIONS_PER_DETECT) break
+      if (it.confidence < MIN_CONFIDENCE) continue
+      if (this.suggestionDuplicate(it.kind, it.name, it.title)) continue
+      newest = this.enqueueSuggestion({
+        suggestedKind: it.kind,
+        name: it.name,
+        title: it.title,
+        description: it.description,
+        rationale: it.rationale,
+        origin: 'chat',
+        sourceRef: sourceMsgId,
+        sourceLabel: 'Maestro chat',
+        source: null,
+        context,
+        topics: [],
+        keywords: [],
+        existing: null,
+        confidence: it.confidence
+      })
+      added++
+    }
+    if (added > 0) {
+      this.persist()
+      if (newest) this.getWin()?.webContents.send('factory:suggestion', newest)
+    }
+  }
+
+  // ---------- self-growth: suggestion queue ----------
+
+  private enqueueSuggestion(
+    input: Omit<FactorySuggestion, 'id' | 'status' | 'createdAt' | 'updatedAt'>
+  ): FactorySuggestion {
+    const now = Date.now()
+    const s: FactorySuggestion = { id: randomUUID(), status: 'open', createdAt: now, updatedAt: now, ...input }
+    this.state.suggestions.push(s)
+    this.capSuggestions()
+    return s
+  }
+
+  /** Keep the queue bounded: prune oldest terminal (created/dismissed) entries first. */
+  private capSuggestions(): void {
+    if (this.state.suggestions.length <= MAX_SUGGESTIONS) return
+    const terminal = this.state.suggestions
+      .filter((s) => s.status === 'created' || s.status === 'dismissed')
+      .sort((a, b) => a.updatedAt - b.updatedAt)
+    while (this.state.suggestions.length > MAX_SUGGESTIONS && terminal.length > 0) {
+      const drop = terminal.shift()!
+      this.state.suggestions = this.state.suggestions.filter((x) => x.id !== drop.id)
+    }
+    if (this.state.suggestions.length > MAX_SUGGESTIONS) {
+      this.state.suggestions = this.state.suggestions.slice(-MAX_SUGGESTIONS)
+    }
+  }
+
+  /**
+   * Deterministic, token-free dedupe: is this idea already installed/registered,
+   * or already in the open queue, or semantically the same as one of those?
+   */
+  private suggestionDuplicate(kind: FactoryArtifactKind, slug: string, title: string): 'artifact' | 'suggestion' | null {
+    const key = `${kind}:${slug}`
+    const installed = new Set([
+      ...this.state.artifacts.map((a) => `${a.kind}:${a.name}`),
+      ...listInstalled().map((i) => `${i.kind}:${i.name}`)
+    ])
+    if (installed.has(key)) return 'artifact'
+
+    const words = (t: string): Set<string> =>
+      new Set(t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean))
+    const jaccard = (a: Set<string>, b: Set<string>): number => {
+      if (a.size === 0 || b.size === 0) return 0
+      let inter = 0
+      for (const w of a) if (b.has(w)) inter++
+      return inter / (a.size + b.size - inter)
+    }
+    const t = words(title)
+    for (const s of this.state.suggestions) {
+      if (s.status !== 'open' && s.status !== 'creating') continue
+      if (s.suggestedKind === kind && s.name === slug) return 'suggestion'
+      if (jaccard(t, words(s.title)) >= 0.6) return 'suggestion'
+    }
+    for (const a of this.state.artifacts) {
+      if (jaccard(t, words(`${a.name} ${a.description}`)) >= 0.6) return 'artifact'
+    }
+    return null
+  }
+
+  /** Author + write + register the artifact for a suggestion (the only way one is built). */
+  async createFromSuggestion(id: string, kind?: FactoryArtifactKind): Promise<void> {
+    const s = this.state.suggestions.find((x) => x.id === id)
+    if (!s || (s.status !== 'open' && s.status !== 'error')) return
+    if (this.busy) return
+    const useKind: FactoryArtifactKind = kind ?? s.suggestedKind
+    this.busy = true
+    this.cancelRequested = false
+    s.status = 'creating'
+    s.result = undefined
+    s.updatedAt = Date.now()
+    this.persist()
+
+    try {
+      const slug = slugify(s.name)
+      let authored: ReturnType<FactoryService['parseAuthor']>
+      if (s.origin === 'scan') {
+        const sources = await this.listSources().catch(() => [] as FactorySource[])
+        const source =
+          sources.find((x) => x.server === s.source) ??
+          ({ server: s.source ?? 'mcp', label: s.sourceLabel, toolPrefix: `mcp__${s.source ?? ''}`, readTools: [] } as FactorySource)
+        const candidate: FactoryCandidate = {
+          id: s.id,
+          kind: useKind,
+          name: slug,
+          description: s.description,
+          topics: s.topics,
+          keywords: s.keywords,
+          rationale: s.rationale,
+          existing: s.existing,
+          status: 'authoring'
+        }
+        const allowedTools = ['Read', 'Grep', 'Glob', source.toolPrefix, ...source.readTools]
+        const out = await runHeadlessClaude({
+          cwd: process.cwd(),
+          prompt: this.authorPrompt(source, candidate, slug),
+          allowedTools,
+          timeoutMs: AUTHOR_TIMEOUT_MS,
+          onSpawn: (child) => (this.inFlight = child)
+        })
+        authored = this.parseAuthor(out)
+      } else {
+        const out = await runHeadlessClaude({
+          cwd: process.cwd(),
+          prompt: this.conversationAuthorPrompt(s, useKind, slug),
+          allowedTools: ['Read', 'Grep', 'Glob'],
+          timeoutMs: AUTHOR_TIMEOUT_MS,
+          onSpawn: (child) => (this.inFlight = child)
+        })
+        authored = this.parseAuthor(out)
+      }
+      if (!authored) throw new Error('The author agent did not return usable file content.')
+
+      const filePath =
+        useKind === 'skill' ? writeSkill(slug, authored.content) : writeAgent(slug, authored.content)
+      this.registerArtifact({
+        kind: useKind,
+        name: slug,
+        filePath,
+        description: authored.description || s.description,
+        topics: authored.topics.length ? authored.topics : s.topics,
+        keywords: authored.keywords.length ? authored.keywords : s.keywords,
+        source: s.origin === 'scan' ? (s.source ?? 'scan') : 'conversation',
+        related: authored.related
+      })
+      const artifact = this.state.artifacts.find((a) => a.kind === useKind && a.name === slug)
+      s.status = 'created'
+      s.suggestedKind = useKind
+      s.artifactId = artifact?.id
+      s.filePath = filePath
+      s.result = `Wrote ${useKind} to ${filePath}`
+    } catch (err) {
+      if (this.cancelRequested) {
+        s.status = 'open'
+        s.result = undefined
+      } else {
+        s.status = 'error'
+        s.result = (err as Error).message || String(err)
+      }
+    } finally {
+      s.updatedAt = Date.now()
+      this.inFlight = null
+      this.busy = false
+      this.persist()
+    }
+  }
+
+  /** Dismiss a suggestion without building it (kept as history; may resurface later). */
+  dismissSuggestion(id: string): void {
+    const s = this.state.suggestions.find((x) => x.id === id)
+    if (!s || (s.status !== 'open' && s.status !== 'error')) return
+    s.status = 'dismissed'
+    s.updatedAt = Date.now()
+    this.persist()
+  }
+
+  private conversationAuthorPrompt(s: FactorySuggestion, kind: FactoryArtifactKind, slug: string): string {
+    const related = this.state.artifacts.map((a) => ({ name: a.name, kind: a.kind, description: a.description }))
+    const lessons = this.state.lessons.map((l) => l.text)
+    const isSkill = kind === 'skill'
+    return [
+      `You are authoring a Claude Code ${isSkill ? 'SKILL' : 'SUB-AGENT'} that captures a reusable`,
+      'workflow the user demonstrated in a Maestro Conductor conversation. You run unattended.',
+      '',
+      `Target artifact:\n${JSON.stringify({ kind, name: slug, description: s.description, topics: s.topics, rationale: s.rationale }, null, 2)}`,
+      '',
+      'The conversation that motivated this artifact — capture the GENERAL, reusable procedure it',
+      'shows; strip one-off specifics (particular file names, ids, values) and keep the repeatable',
+      'method:',
+      s.context || '(no excerpt was captured; rely on the target description above)',
+      '',
+      'Write the COMPLETE file content as Markdown with a YAML frontmatter block.',
+      isSkill
+        ? [
+            'For a SKILL the file is SKILL.md. Frontmatter MUST be exactly:',
+            '---',
+            `name: ${slug}`,
+            'description: <one line describing WHEN to use this skill>',
+            '---',
+            'Then the body: a focused, step-by-step procedure the agent can follow.'
+          ].join('\n')
+        : [
+            'For a SUB-AGENT the file is an agent definition. Frontmatter MUST be exactly:',
+            '---',
+            `name: ${slug}`,
+            'description: <one line: when to route to this agent — be specific with trigger terms>',
+            'model: claude-sonnet-4-6',
+            '---',
+            "Then the body: the agent's system prompt — its scope, what it knows, and what it does NOT cover."
+          ].join('\n'),
+      '',
+      `Other artifacts that exist (name any genuinely related):\n${JSON.stringify(related, null, 2)}`,
+      lessons.length ? `\nLessons learned (respect these):\n- ${lessons.join('\n- ')}` : '',
+      '',
+      'Respond with ONLY one JSON object — no markdown fences around the whole object, no prose:',
+      '{"content":"<the FULL file content, frontmatter + body, as a single string>",',
+      ' "description":"<final one-line description>",',
+      ' "topics":["..."], "keywords":["..."],',
+      ' "related":["<names of related existing artifacts>"]}'
+    ]
+      .filter((l) => l !== '')
+      .join('\n')
   }
 
   /** Cancel the in-flight scan/author agent, if any (the run reports 'cancelled'). */

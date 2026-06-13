@@ -3773,6 +3773,119 @@ body {
   color: #a855f7;
   border-color: #a855f7;
 }
+.kind-chip.kind-suggestion {
+  color: var(--dim);
+  border-style: dashed;
+}
+
+/* ---- self-growth suggestions ---- */
+.factory-suggestion {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.factory-suggestion.status-creating {
+  border-color: var(--working);
+}
+.factory-suggestion.status-error {
+  border-color: var(--error);
+}
+.factory-suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.factory-suggestion-name {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-weight: 600;
+}
+.factory-suggestion-desc {
+  font-size: 13px;
+}
+.factory-suggestion-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.factory-origin-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.factory-origin-chip.origin-chat {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.factory-origin-chip.origin-scan {
+  color: var(--working);
+  border-color: var(--working);
+}
+.factory-confidence {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.factory-cand-status.status-creating {
+  color: var(--working);
+}
+.factory-suggestion-created {
+  font-size: 12px;
+  color: var(--green);
+}
+
+/* arrival banner (extends the drift-banner shape, accent-tinted = "new") */
+.factory-suggest-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 14px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+.factory-suggest-banner-icon {
+  color: var(--accent);
+}
+.factory-suggest-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.factory-suggest-banner-close {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 13px;
+}
+.factory-suggest-banner-close:hover {
+  color: var(--text);
+}
+
+/* sidebar Factory entry: suggestion-count badge on the glyph */
+.factory-glyph {
+  position: relative;
+}
+.factory-suggest-badge {
+  top: -6px;
+  right: -8px;
+}
 
 /* scan runs + candidates */
 .factory-run {
@@ -4491,6 +4604,20 @@ body {
 .factory-graph-node.dim {
   opacity: 0.25;
 }
+/* pending = an open suggestion: a dashed, translucent "ghost" node. */
+.factory-graph-node.pending circle {
+  fill: none;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+.factory-graph-node.pending text {
+  opacity: 0.7;
+  font-style: italic;
+}
+.factory-graph-link.pending {
+  stroke-dasharray: 4 3;
+  opacity: 0.5;
+}
 .factory-graph-legend {
   position: absolute;
   left: 14px;
@@ -4498,10 +4625,28 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 28px);
 }
 .factory-graph-hint {
   color: var(--dim);
   font-size: 11px;
+}
+.factory-graph-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+}
+.factory-graph-stats {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  font-size: 11px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 .factory-graph-empty {
   flex: 1;

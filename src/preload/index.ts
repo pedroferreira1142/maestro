@@ -6,8 +6,10 @@ import type {
   ConductorImage,
   ConductorMessage,
   ConductorTaskOptions,
+  FactoryInventory,
   FactoryRun,
   FactoryState,
+  FactorySuggestion,
   Feature,
   FsEvent,
   RepoCategory,
@@ -142,9 +144,17 @@ const api: Api = {
   dismissFactoryTopic: (id) => ipcRenderer.invoke('factory:dismissTopic', id),
   addFactoryLesson: (text) => ipcRenderer.invoke('factory:addLesson', text),
   deleteFactoryLesson: (id) => ipcRenderer.invoke('factory:deleteLesson', id),
+  createFromSuggestion: (id, kind) =>
+    ipcRenderer.invoke('factory:createFromSuggestion', id, kind),
+  dismissSuggestion: (id) => ipcRenderer.invoke('factory:dismissSuggestion', id),
+  getFactoryInventory: () => ipcRenderer.invoke('factory:inventory'),
   onFactoryChanged: (cb) =>
     subscribe('factory:changed', (state) => cb(state as FactoryState)),
   onFactoryRuns: (cb) => subscribe('factory:runs', (runs) => cb(runs as FactoryRun[])),
+  onFactorySuggestion: (cb) =>
+    subscribe('factory:suggestion', (s) => cb(s as FactorySuggestion)),
+  onFactoryInventory: (cb) =>
+    subscribe('factory:inventory', (inv) => cb(inv as FactoryInventory)),
 
   getInstalledAgents: () => ipcRenderer.invoke('agents:get'),
   refreshInstalledAgents: () => ipcRenderer.invoke('agents:refresh'),

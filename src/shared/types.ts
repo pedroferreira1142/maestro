@@ -1259,11 +1259,114 @@ export interface FactoryRun {
   summary: string
 }
 
+/** Where a self-growth suggestion came from. */
+export type FactorySuggestionOrigin = 'chat' | 'scan'
+
+/**
+ * Lifecycle of a suggestion (a not-yet-built skill/agent the self-growth layer
+ * proposes; the user always confirms before anything is created):
+ *  'open'      — queued, awaiting the user's click.
+ *  'creating'  — createFromSuggestion() is authoring its file (single in-flight).
+ *  'created'   — authored, written, and registered as a FactoryArtifact (history).
+ *  'dismissed' — the user dismissed it (history; may be re-proposed later).
+ *  'error'     — a create attempt failed (see `result`); Retry re-enters 'creating'.
+ */
+export type FactorySuggestionStatus = 'open' | 'creating' | 'created' | 'dismissed' | 'error'
+
+/**
+ * A proposed skill/agent surfaced by the self-growing layer — either spotted in
+ * the Conductor chat ('chat') or proposed by a background MCP scan ('scan').
+ * Carries everything needed to author it on its own, so it survives the runs
+ * ring buffer and a cleared chat.
+ */
+export interface FactorySuggestion {
+  id: string
+  /** The kind the detector suggested; the user can still pick the other at create time. */
+  suggestedKind: FactoryArtifactKind
+  /** kebab-case slug (slugify'd on intake) used for the file/dir + frontmatter name. */
+  name: string
+  /** Human title, used for semantic dedupe. */
+  title: string
+  /** One-line "when to use". */
+  description: string
+  /** Why it is worth building. */
+  rationale: string
+  origin: FactorySuggestionOrigin
+  /** Conductor message id ('chat') or MCP server key ('scan'). */
+  sourceRef: string
+  /** Human label, e.g. 'Maestro chat' or 'Atlassian (Confluence / Jira)'. */
+  sourceLabel: string
+  /** MCP server key for 'scan' origin; null for 'chat'. */
+  source: string | null
+  /** Distilled chat excerpt ('chat') or scan summary ('scan') — self-contained for authoring. */
+  context: string
+  topics: string[]
+  keywords: string[]
+  /** Name of an existing registered artifact this should ENRICH, or null to create new. */
+  existing: string | null
+  /** Detector confidence 0..1. */
+  confidence: number
+  status: FactorySuggestionStatus
+  /** Set once created: the resulting artifact id + file path. */
+  artifactId?: string
+  filePath?: string
+  /** Success detail, or error message when a create attempt failed. */
+  result?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** Cheap inventory snapshot from the free periodic refresh (no tokens). */
+export interface FactoryInventory {
+  /** Skills/agents present on disk under ~/.claude. */
+  installedCount: number
+  /** Artifacts tracked in the registry. */
+  registeredCount: number
+  /** Connected MCP source count (cached discovery). */
+  sourceCount: number
+  /** Registry entries whose file is gone. */
+  missingFiles: number
+  /** On-disk artifacts the registry doesn't track yet. */
+  unregistered: number
+  refreshedAt: number
+}
+
+/** Which Factory pane tab is shown (shared so the store can deep-link to one). */
+export type FactoryTab =
+  | 'scans'
+  | 'suggestions'
+  | 'agents'
+  | 'registry'
+  | 'backlog'
+  | 'lessons'
+  | 'graph'
+
 /** The persisted factory registry (userData/factory.json). */
 export interface FactoryState {
   artifacts: FactoryArtifact[]
   topics: FactoryTopic[]
   lessons: FactoryLesson[]
+  /** Self-growth suggestion queue (open + history). */
+  suggestions: FactorySuggestion[]
+}
+
+/**
+ * Persisted self-growth bookkeeping (rotation + rate limits), kept in factory.json
+ * under `growth` — small scalars, not part of the broadcast FactoryState.
+ */
+export interface FactoryGrowthMeta {
+  /** MCP server key -> last auto-propose scan time (ms epoch), for round-robin rotation. */
+  lastScannedAt: Record<string, number>
+  /** Last infrequent auto-propose pass (ms epoch). */
+  lastAutoProposeAt: number
+  /** Last conversation judge run (ms epoch). */
+  lastDetectAt: number
+  /** Conductor turns observed since the last judge (gates cheap chit-chat). */
+  turnsSinceDetect: number
+  /** Local-day key (YYYY-MM-DD) the judge-call counter belongs to. */
+  judgeDay: string
+  /** Judge calls already spent today (daily token cap). */
+  judgeCallsToday: number
 }
 
 // ---------- installed agents + external agent-factory registry ----------

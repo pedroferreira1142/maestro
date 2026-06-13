@@ -262,6 +262,12 @@ export function registerIpc(
   ipcMain.handle('factory:dismissTopic', (_e, id: string) => factory.dismissTopic(id))
   ipcMain.handle('factory:addLesson', (_e, text: string) => factory.addLesson(text))
   ipcMain.handle('factory:deleteLesson', (_e, id: string) => factory.deleteLesson(id))
+  // self-growth suggestions
+  ipcMain.handle('factory:createFromSuggestion', (_e, id: string, kind?: FactoryArtifactKind) =>
+    factory.createFromSuggestion(id, kind)
+  )
+  ipcMain.handle('factory:dismissSuggestion', (_e, id: string) => factory.dismissSuggestion(id))
+  ipcMain.handle('factory:inventory', () => factory.getInventory())
 
   // --- installed agents + external agent-factory registry (Factory → Agents tab) ---
   ipcMain.handle('agents:get', () => agents.snapshot())

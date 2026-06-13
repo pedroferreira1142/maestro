@@ -115,6 +115,9 @@ if (!gotLock) {
     sentinels.start()
     autoExpand.start()
     tokenEff.start()
+    factory.start()
+    // Feed completed Conductor turns into the Factory's self-growth detector.
+    conductor.onTurnComplete((messages) => factory.considerConversation(messages))
 
     // macOS convention: closing the window keeps the app (and its PTYs)
     // running; clicking the dock icon brings the window back.
