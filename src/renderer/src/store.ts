@@ -38,6 +38,16 @@ import {
 } from '../../shared/claudeArgs'
 import type { GameCelebration, GameSnapshot } from '../../shared/gamification'
 
+/** Severity of a toast notification — controls its colour and icon. */
+export type ToastLevel = 'success' | 'info' | 'warn' | 'error'
+
+/** A transient, auto-dismissing toast notification (shown bottom-right). */
+export interface ToastNotice {
+  id: string
+  level: ToastLevel
+  text: string
+}
+
 /** One terminal waiting for user input, queued when it entered 'needs-attention'. */
 export interface AttentionEntry {
   sessionId: string
@@ -260,8 +270,8 @@ interface AppStore {
   factoryBusy: boolean
   /** Installed agents merged with the external agent-factory registry (Agents tab). */
   agentsSnapshot: AgentsSnapshot | null
-  /** Brief auto-dismissing confirmation message (e.g. 'Transcript copied'). */
-  notice: string | null
+  /** Stack of brief auto-dismissing toast notifications (e.g. 'Transcript copied'). */
+  notices: ToastNotice[]
   /** Cached merge-readiness state per worktree session id, for the sidebar badge. */
   worktreeStates: Record<string, WorktreeTaskState>
   /** Worktree sessions with a readiness check in flight (badge shows 'checking'). */
@@ -523,15 +533,14 @@ interface AppStore {
   refreshAgents(): Promise<void>
   /** Replace the agents snapshot (pushed from main on file-watch events). */
   applyAgentsSnapshot(snapshot: AgentsSnapshot): void
-  /** Show a brief confirmation message that dismisses itself. */
-  showNotice(text: string): void
+  /** Show a brief toast that dismisses itself; level sets its colour/icon. */
+  showNotice(text: string, level?: ToastLevel): void
+  /** Dismiss a toast by id (manual close). */
+  dismissNotice(id: string): void
 }
 
 /** How long a notice (brief confirmation) stays on screen. */
 const NOTICE_MS = 2000
-
-/** Identifies the latest showNotice call, so only it clears the message. */
-let noticeNonce = 0
 
 /** How long the Factory suggestion banner stays before auto-clearing. */
 const SUGGEST_BANNER_MS = 10000
@@ -599,7 +608,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   celebration: null,
   celebrationQueue: [],
   agentsSnapshot: null,
-  notice: null,
+  notices: [],
   worktreeStates: {},
   worktreeChecking: {},
 
@@ -797,7 +806,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     try {
       const cp = await window.api.createCheckpoint(sessionId, label)
       get().refreshGit()
-      get().showNotice(`Checkpoint saved: ${cp.label}`)
+      get().showNotice(`Checkpoint saved: ${cp.label}`, 'success')
     } catch (err) {
       window.alert(`Couldn't create a checkpoint:\n\n${(err as Error).message}`)
     }
@@ -816,7 +825,7 @@ export const useStore = create<AppStore>()((set, get) => ({
       const res = await window.api.restoreCheckpoint(sessionId, id)
       get().refreshGit()
       if (res.ok) {
-        get().showNotice(`Restored checkpoint: ${label}`)
+        get().showNotice(`Restored checkpoint: ${label}`, 'success')
       } else {
         window.alert(`Couldn't restore the checkpoint:\n\n${res.output}`)
       }
@@ -903,7 +912,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     get().refreshGit() // a commit may have happened
     if (result.ok) {
       const existed = result.alreadyExists ? 'A pull request already exists' : 'Opened a pull request'
-      get().showNotice(`${existed} for "${wt.branch}".`)
+      get().showNotice(`${existed} for "${wt.branch}".`, 'success')
       if (result.url && window.confirm(`${existed} for "${wt.branch}":\n\n${result.url}\n\nOpen it in your browser?`)) {
         window.api.openExternal(result.url)
       }
@@ -920,7 +929,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     void sessionId
     if (result.kind === 'pr') {
       if (result.ok) {
-        get().showNotice(`Auto-opened a PR for "${result.branch}".`)
+        get().showNotice(`Auto-opened a PR for "${result.branch}".`, 'success')
         if (result.url) {
           window.alert(
             `Maestro automatically opened a pull request for "${result.name}":\n\n${result.url}`
@@ -935,7 +944,7 @@ export const useStore = create<AppStore>()((set, get) => ({
     }
     // merge
     if (result.ok) {
-      get().showNotice(`Auto-merged "${result.branch}" into "${result.baseBranch}".`)
+      get().showNotice(`Auto-merged "${result.branch}" into "${result.baseBranch}".`, 'success')
     } else if (result.conflict) {
       window.alert(
         `Maestro couldn't auto-merge "${result.name}" into "${result.baseBranch}" — it would ` +
@@ -1872,12 +1881,16 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({ agentsSnapshot: snapshot })
   },
 
-  showNotice(text) {
-    const nonce = ++noticeNonce
-    set({ notice: text })
-    setTimeout(() => {
-      if (noticeNonce === nonce) set({ notice: null })
-    }, NOTICE_MS)
+  showNotice(text, level = 'info') {
+    const id = crypto.randomUUID()
+    set((s) => ({ notices: [...s.notices, { id, level, text }] }))
+    // Errors linger ~3× longer so they aren't missed.
+    const ttl = level === 'error' ? NOTICE_MS * 3 : NOTICE_MS
+    setTimeout(() => get().dismissNotice(id), ttl)
+  },
+
+  dismissNotice(id) {
+    set((s) => ({ notices: s.notices.filter((n) => n.id !== id) }))
   },
 
   applyFsEvents(id, events) {

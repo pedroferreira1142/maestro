@@ -1,16 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import {
+  ChevronDown,
+  GitCompare,
+  Plus,
+  Sparkles,
+  SquareChevronRight,
+  SquareTerminal,
+  Terminal,
+  X
+} from 'lucide-react'
 import type { SessionInfo, TerminalInfo, TerminalKind } from '../../../shared/types'
 import { type ClaudeModelAlias, getModelAlias } from '../../../shared/claudeArgs'
 import { diffTabPath, isDiffTab, useStore } from '../store'
 import { copyTranscript, exportTranscript } from '../transcript'
-import { STATUS_GLYPH, STATUS_LABEL } from './SessionSidebar'
+import { Icon, StatusIcon } from './Icon'
+import { STATUS_LABEL } from './SessionSidebar'
 
-const KIND_ICON: Record<TerminalKind, string> = {
-  claude: '✶',
-  powershell: '❯_',
-  cmd: '▤',
-  bash: '$_',
-  zsh: '%_'
+const KIND_ICON: Record<TerminalKind, LucideIcon> = {
+  claude: Sparkles,
+  powershell: SquareTerminal,
+  cmd: SquareChevronRight,
+  bash: Terminal,
+  zsh: Terminal
 }
 
 /** Terminal kinds offered by the ＋▾ menu, per platform. */
@@ -161,19 +173,25 @@ function TerminalTab({
     <div
       className={`tab term-tab status-${terminal.status}${active ? ' active' : ''}`}
       title={`${terminal.config.kind} · ${STATUS_LABEL[terminal.status]}`}
+      tabIndex={0}
       onClick={() => setActiveTab(sessionId, id)}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault()
+          setActiveTab(sessionId, id)
+        }
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         setMenuPos({ x: e.clientX, y: e.clientY })
       }}
     >
-      <span
-        className={`tab-icon glyph status-${terminal.status}`}
-        aria-label={STATUS_LABEL[terminal.status]}
-      >
-        {STATUS_GLYPH[terminal.status]}
-      </span>
-      <span className="tab-kind">{KIND_ICON[terminal.config.kind]}</span>
+      <StatusIcon
+        status={terminal.status}
+        className="tab-icon"
+        label={STATUS_LABEL[terminal.status]}
+      />
+      <Icon icon={KIND_ICON[terminal.config.kind]} className="tab-kind" size={13} />
       {editing ? (
         <input
           className="rename-input"
@@ -195,7 +213,7 @@ function TerminalTab({
           {terminal.config.title}
         </span>
       )}
-      {terminal.config.kind === 'claude' && <ModelSelector terminal={terminal} />}
+      {terminal.config.kind === 'claude' && active && <ModelSelector terminal={terminal} />}
       {canClose && (
         <button
           className="btn ghost close"
@@ -205,7 +223,7 @@ function TerminalTab({
             void closeTerminal(sessionId, id)
           }}
         >
-          ✕
+          <Icon icon={X} size={13} />
         </button>
       )}
       {menuPos && (
@@ -249,7 +267,8 @@ function AddTerminalMenu({ sessionId }: { sessionId: string }): JSX.Element {
   return (
     <div className="tab-add" ref={ref}>
       <button ref={btnRef} className="tab tab-add-btn" title="New terminal" onClick={toggle}>
-        ＋▾
+        <Icon icon={Plus} size={14} />
+        <Icon icon={ChevronDown} size={12} />
       </button>
       {menuPos && (
         <div className="tab-add-menu" style={{ left: menuPos.x, top: menuPos.y }}>
@@ -262,7 +281,7 @@ function AddTerminalMenu({ sessionId }: { sessionId: string }): JSX.Element {
                 void addTerminal(sessionId, kind)
               }}
             >
-              <span className="tab-kind">{KIND_ICON[kind]}</span> {label}
+              <Icon icon={KIND_ICON[kind]} className="tab-kind" size={14} /> {label}
             </button>
           ))}
         </div>
@@ -299,9 +318,16 @@ export function TabStrip({ session }: { session: SessionInfo }): JSX.Element {
             key={tab}
             className={`tab${diff ? ' diff-tab' : ''}${active === tab ? ' active' : ''}`}
             title={diff ? `Diff (working tree vs HEAD) · ${relPath}` : relPath}
+            tabIndex={0}
             onClick={() => setActiveTab(id, tab)}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                e.preventDefault()
+                setActiveTab(id, tab)
+              }
+            }}
           >
-            {diff && <span className="tab-diff-badge">±</span>}
+            {diff && <Icon icon={GitCompare} className="tab-diff-badge" size={12} />}
             <span className="tab-name">{relPath.split('/').pop()}</span>
             <button
               className="btn ghost close"
@@ -310,7 +336,7 @@ export function TabStrip({ session }: { session: SessionInfo }): JSX.Element {
                 closeTab(id, tab)
               }}
             >
-              ✕
+              <Icon icon={X} size={13} />
             </button>
           </div>
         )

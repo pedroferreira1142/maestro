@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Activity, Coins, Hourglass, Zap } from 'lucide-react'
 import type { SessionInfo, TokenEfficiencyStatus, TokenTotals } from '../../../shared/types'
 import { useStore } from '../store'
 import { jumpToAttentionTerminal } from '../termRegistry'
+import { Icon, StatusIcon } from './Icon'
 import { STATUS_LABEL } from './SessionSidebar'
 
 /** How often the status bar's usage/efficiency figures refresh. */
@@ -82,7 +84,9 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
 
   return (
     <div className="statusbar">
-      <span className={`status-pill status-${status}`}>{STATUS_LABEL[status]}</span>
+      <span className={`status-pill status-${status}`}>
+        <StatusIcon status={status} size={12} /> {STATUS_LABEL[status]}
+      </span>
       <span className="statusbar-folder" title={session.config.folder}>
         {session.config.folder}
       </span>
@@ -90,12 +94,12 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
       <span className="statusbar-tokens">
         {todayTokens != null && todayTokens > 0 && (
           <span title="Tokens this session's project consumed today (all kinds, from ~/.claude/projects transcripts)">
-            ◍ {fmtTokens(todayTokens)} tok today
+            <Icon icon={Coins} size={12} /> {fmtTokens(todayTokens)} tok today
           </span>
         )}
         {termTokens > 0 && (
           <span title="Rough estimate from this terminal's streamed output this run (~4 chars/token)">
-            ≈ {fmtTokens(termTokens)} tok streamed
+            <Icon icon={Activity} size={12} /> {fmtTokens(termTokens)} tok streamed
           </span>
         )}
         {teOn && te && (
@@ -110,7 +114,8 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
             }
             onClick={() => openSettings('token-efficiency')}
           >
-            {te.pendingRestart ? '⚡ restart to apply' : `⚡ saved ~${fmtTokens(te.savings.savedTokens)}`}
+            <Icon icon={Zap} size={12} />{' '}
+            {te.pendingRestart ? 'restart to apply' : `saved ~${fmtTokens(te.savings.savedTokens)}`}
           </button>
         )}
       </span>
@@ -120,7 +125,7 @@ export function StatusBar({ session }: { session: SessionInfo }): JSX.Element {
           title="Jump to the longest-waiting terminal (Ctrl+`)"
           onClick={jumpToAttentionTerminal}
         >
-          ⏳ {waiting} waiting
+          <Icon icon={Hourglass} size={12} /> {waiting} waiting
         </button>
       )}
       <span className="statusbar-age">{age}</span>

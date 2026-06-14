@@ -22,9 +22,11 @@ import { SentinelDialog } from './components/SentinelDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { WorktreeTaskDialog } from './components/WorktreeTaskDialog'
 import { SessionSidebar } from './components/SessionSidebar'
+import { Spinner } from './components/Spinner'
 import { StatusBar } from './components/StatusBar'
 import { TabStrip } from './components/TabStrip'
 import { TerminalHost } from './components/TerminalHost'
+import { ToastHost } from './components/ToastHost'
 import { fsBus } from './fsBus'
 import { diffTabPath, isDiffTab, useStore } from './store'
 import { focusActiveTerminal, jumpToAttentionTerminal } from './termRegistry'
@@ -69,7 +71,6 @@ export default function App(): JSX.Element {
   const broadcastOpen = useStore((s) => s.broadcastOpen)
   const repoOverviewOpen = useStore((s) => s.repoOverviewOpen)
   const view = useStore((s) => s.view)
-  const notice = useStore((s) => s.notice)
 
   const active = sessions.find((s) => s.config.id === activeId) ?? null
   const activeViewer = activeId ? viewers[activeId] : undefined
@@ -178,7 +179,12 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('click', onClick)
   }, [])
 
-  if (!settings) return <div className="app loading">Loading…</div>
+  if (!settings)
+    return (
+      <div className="app loading">
+        <Spinner size={20} /> Loading…
+      </div>
+    )
 
   return (
     <div
@@ -275,7 +281,7 @@ export default function App(): JSX.Element {
       {paletteOpen && <CommandPalette />}
       {broadcastOpen && <BroadcastDialog />}
       {repoOverviewOpen && <RepoStatusOverview />}
-      {notice && <div className="app-notice">{notice}</div>}
+      <ToastHost />
       <Celebration />
     </div>
   )

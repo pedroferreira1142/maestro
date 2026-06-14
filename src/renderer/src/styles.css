@@ -1,9 +1,59 @@
+/* ===== Design-system scales (additive, theme-independent) =====
+ * Spacing / radius / elevation / motion + focus ring + z-index. Colours live in
+ * the per-theme :root blocks below; accent tints derive from --accent via
+ * color-mix so they track the active theme AND a custom accent automatically. */
+:root {
+  /* spacing — 4px base + a 2px step for this dense tool */
+  --space-half: 2px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 20px;
+  --space-3xl: 24px;
+
+  /* radius */
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* elevation — tuned for dark surfaces */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-4: 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --dur-fast: 0.12s;
+  --dur-base: 0.16s;
+
+  /* hairline divider + accent tints (derived so custom accents work too) */
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 45%, transparent);
+
+  /* keyboard focus ring — bg gap + accent halo */
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* z-index scale */
+  --z-rail: 50;
+  --z-dropdown: 150;
+  --z-modal: 200;
+  --z-toast: 500;
+}
+
+/* Theme colour tokens — dark (default) */
 :root {
   --bg: #16171a;
   --panel: #1d1e23;
   --panel-2: #222329;
+  --panel-3: #2b2c33;
   --border: #2a2c33;
-  --text: #d7d8db;
+  --text: #e3e4e8;
+  --text-2: #b3b5bd;
   --dim: #8b8d94;
   --accent: #d97757;
   /* readable text on a solid --accent fill (overridden per-theme + by a custom accent) */
@@ -25,8 +75,10 @@
   --bg: #0c0e14;
   --panel: #12151f;
   --panel-2: #171b28;
+  --panel-3: #1e2434;
   --border: #243049;
   --text: #e6f1ff;
+  --text-2: #aeb9d4;
   --dim: #7e8ba8;
   --accent: #22d3ee;
   --accent-fg: #06121a;
@@ -46,8 +98,10 @@
   --bg: #190f2e;
   --panel: #21163f;
   --panel-2: #2b1d52;
+  --panel-3: #33215f;
   --border: #3d2a6b;
   --text: #ffe9f6;
+  --text-2: #c7a9e0;
   --dim: #a98fc8;
   --accent: #ff2e88;
   --accent-fg: #ffffff;
@@ -72,6 +126,18 @@
 .app.reduce-motion *::after {
   animation: none !important;
   transition: none !important;
+}
+
+/* Honour the OS "reduce motion" preference even when the in-app toggle is off. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 * {
@@ -122,26 +188,62 @@ body {
   --bg: rgba(22, 23, 26, 0.82);
   --panel: rgba(29, 30, 35, 0.82);
   --panel-2: rgba(34, 35, 41, 0.82);
+  --panel-3: rgba(43, 44, 51, 0.86);
 }
 
 .app.loading {
   align-items: center;
   justify-content: center;
+  gap: 10px;
   color: var(--dim);
 }
 
+/* Indeterminate spinner (reuses the spin keyframe; respects reduce-motion). */
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   padding: 4px 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-base);
+  font-family: inherit;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out);
 }
 
 .btn:hover {
   border-color: var(--dim);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .btn.primary {
@@ -149,6 +251,32 @@ body {
   border-color: var(--accent);
   color: var(--accent-fg);
   font-weight: 600;
+}
+
+.btn.primary:hover:not(:disabled),
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn.secondary {
+  background: var(--panel);
+}
+
+.btn.outline {
+  background: transparent;
+  border-color: var(--dim);
+}
+
+.btn.danger {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn.btn-sm {
+  padding: 2px 8px;
+  font-size: var(--text-sm);
 }
 
 .btn.ghost {
@@ -160,10 +288,33 @@ body {
 
 .btn.ghost:hover {
   color: var(--text);
+  background: var(--border-soft);
+}
+
+.btn.ghost:disabled,
+.btn.ghost:disabled:hover {
+  background: transparent;
+  color: var(--dim);
 }
 
 .btn.ghost.on {
   color: var(--accent);
+}
+
+/* Consistent keyboard focus ring across interactive surfaces. */
+.tab:focus-visible,
+.session-entry:focus-visible,
+.tab-model:focus-visible,
+.context-menu button:focus-visible,
+.tab-add-item:focus-visible,
+.palette-item:focus-visible,
+.statusbar-attention:focus-visible,
+.statusbar-te:focus-visible,
+.merge-badge:focus-visible,
+.rename-input:focus-visible,
+.palette-input:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 
 .row {
@@ -174,8 +325,8 @@ body {
 /* ---------- sidebar ---------- */
 
 .sidebar {
-  width: 220px;
-  min-width: 220px;
+  width: 248px;
+  min-width: 248px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
@@ -186,11 +337,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  /* Wrap when the action buttons can't all fit on one row, so none (e.g. the
-     ＋ new-session button) gets clipped off the right edge of the 220px rail. */
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 10px 12px 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 10px 10px 6px 12px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -198,15 +347,26 @@ body {
   color: var(--dim);
 }
 
-/* Tighten the header's icon-button row so more fit before wrapping. */
+.sidebar-header > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sidebar-header .row {
-  flex-wrap: wrap;
+  flex: none;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 2px;
 }
 
-.sidebar-header .row .btn.ghost {
-  padding: 2px 4px;
+/* Square icon buttons in the header — uniform hit targets with a hover affordance. */
+.sidebar-header .row .btn.ghost.icon-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--r-sm);
 }
 
 .sidebar-list {
@@ -221,6 +381,7 @@ body {
   padding: 7px 8px 7px 10px;
   border-left: 3px solid transparent;
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .session-entry:hover {
@@ -228,16 +389,20 @@ body {
 }
 
 .session-entry.active {
-  background: var(--panel-2);
+  background: var(--accent-soft);
   border-left-color: var(--accent);
 }
 
 .session-entry .close {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.session-entry:hover .close {
-  visibility: visible;
+.session-entry:hover .close,
+.session-entry:focus-within .close {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .session-meta {
@@ -267,7 +432,7 @@ body {
 .rename-input {
   background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   color: var(--text);
   font-size: 13px;
   padding: 1px 4px;
@@ -276,28 +441,27 @@ body {
 
 .glyph {
   width: 14px;
-  text-align: center;
-  font-size: 13px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
 }
 
 .glyph.status-working {
   color: var(--working);
   animation: spin 1.2s linear infinite;
-  display: inline-block;
 }
 
 /* Blocked on the user — the only nagging signal: amber, breathing pulse. */
 .glyph.status-needs-attention {
   color: var(--attention);
-  display: inline-block;
   animation: pulse 1.4s ease-in-out infinite;
 }
 
 /* Finished a turn — your turn now: green check that pops in once, then rests. */
 .glyph.status-done {
   color: var(--green);
-  font-weight: 700;
-  display: inline-block;
   animation: done-pop 0.5s ease-out;
 }
 
@@ -348,9 +512,10 @@ body {
 .watchdog-badge {
   flex: none;
   width: 14px;
-  text-align: center;
-  font-size: 12px;
-  line-height: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: help;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -435,15 +600,16 @@ body {
   max-width: calc(100vw - 24px);
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--panel-2);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 12px 14px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 12px;
+  animation: popover-in var(--dur-fast) var(--ease-out);
 }
 
 .usage-summary {
@@ -1155,15 +1321,16 @@ body {
 
 .context-menu {
   position: fixed;
-  z-index: 100;
-  background: var(--panel-2);
+  z-index: var(--z-dropdown);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-2);
   display: flex;
   flex-direction: column;
   min-width: 170px;
+  animation: popover-in var(--dur-fast) var(--ease-out);
 }
 
 .context-menu button {
@@ -1178,8 +1345,8 @@ body {
 }
 
 .context-menu button:hover {
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 /* ---------- main area ---------- */
@@ -1230,15 +1397,33 @@ body {
   cursor: pointer;
   color: var(--dim);
   white-space: nowrap;
+  position: relative;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .tab:hover {
   color: var(--text);
 }
 
+.tab:hover:not(.active) {
+  background: var(--panel-2);
+}
+
 .tab.active {
   background: var(--bg);
   color: var(--text);
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
 }
 
 .tab-icon {
@@ -1247,12 +1432,16 @@ body {
 }
 
 .tab .close {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
   font-size: 10px;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.tab:hover .close {
-  visibility: visible;
+.tab:hover .close,
+.tab:focus-within .close {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .tab-kind {
@@ -1272,19 +1461,19 @@ body {
 
 /* Per-claude-tab model switcher */
 .tab-model {
-  background: var(--bg);
+  background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--dim);
-  font-size: 10px;
-  padding: 0 2px;
-  max-width: 74px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 11px;
+  height: 22px;
+  padding: 0 6px;
   cursor: pointer;
 }
 
 .tab-model:hover {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 /* Add-terminal dropdown */
@@ -1309,13 +1498,14 @@ body {
 
 .tab-add-menu {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   min-width: 150px;
-  background: var(--panel-2);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 4px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-2);
+  animation: popover-in var(--dur-fast) var(--ease-out);
 }
 
 .tab-add-item {
@@ -1326,7 +1516,7 @@ body {
   padding: 6px 10px;
   background: none;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -1334,7 +1524,7 @@ body {
 }
 
 .tab-add-item:hover {
-  background: var(--accent);
+  background: var(--accent-soft);
 }
 
 .session-termcount {
@@ -1381,11 +1571,15 @@ body {
 /* ---------- worktree (parallel task) sessions ---------- */
 
 .session-entry .fork {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.session-entry:hover .fork {
-  visibility: visible;
+.session-entry:hover .fork,
+.session-entry:focus-within .fork {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Indent worktree tasks under their parent, with a connector tick. */
@@ -1481,14 +1675,18 @@ body {
 /* ---------- prompt queue ---------- */
 
 .session-entry .queue-btn {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
   position: relative;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 /* With queued prompts, the button (and its count badge) is always visible. */
 .session-entry:hover .queue-btn,
+.session-entry:focus-within .queue-btn,
 .session-entry .queue-btn.has-items {
-  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .queue-badge {
@@ -1519,14 +1717,15 @@ body {
   position: fixed;
   width: 340px;
   max-width: calc(100vw - 24px);
-  background: var(--panel);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-3);
+  animation: popover-in var(--dur-fast) var(--ease-out);
 }
 
 .queue-popover-title {
@@ -1627,17 +1826,20 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
-  background: rgba(0, 0, 0, 0.55);
+  z-index: var(--z-modal);
+  background: rgba(10, 11, 14, 0.55);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: overlay-in var(--dur-base) var(--ease-out);
 }
 
 .modal {
-  background: var(--panel);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   padding: 18px 20px;
   width: 420px;
   max-width: 90vw;
@@ -1646,7 +1848,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-4);
+  animation: modal-in var(--dur-base) var(--ease-out);
 }
 
 .modal-wide {
@@ -1690,18 +1893,22 @@ body {
 .field textarea {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   color: var(--text);
   font-size: 13px;
   padding: 5px 8px;
   outline: none;
   font-family: inherit;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
   border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 .field-hint {
@@ -1872,9 +2079,41 @@ body {
 .modal-error {
   background: rgba(229, 72, 77, 0.15);
   color: var(--error);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   padding: 6px 10px;
   font-size: 12px;
+}
+
+/* Entrance animations (auto-disabled by .reduce-motion and prefers-reduced-motion). */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ---------- broadcast-prompt dialog ---------- */
@@ -2063,15 +2302,16 @@ body {
 }
 
 .gs-palette {
-  background: var(--panel);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   width: 640px;
   max-width: 90vw;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-4);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: modal-in var(--dur-base) var(--ease-out);
 }
 
 .gs-input-row {
@@ -2193,24 +2433,28 @@ body {
   position: fixed;
   inset: 0;
   z-index: 300;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(10, 11, 14, 0.5);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
+  animation: overlay-in var(--dur-base) var(--ease-out);
 }
 
 .palette {
-  background: var(--panel);
+  background: var(--panel-3);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   width: 560px;
   max-width: 90vw;
   max-height: 60vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-4);
+  animation: modal-in var(--dur-base) var(--ease-out);
 }
 
 .palette-input {
@@ -2253,9 +2497,12 @@ body {
   text-overflow: ellipsis;
 }
 
-.palette-item.sel,
 .palette-item:hover {
   background: var(--panel-2);
+}
+
+.palette-item.sel {
+  background: var(--accent-soft);
 }
 
 .palette-sub {
@@ -2774,8 +3021,9 @@ body {
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 4px 12px;
+  gap: 10px;
+  padding: 5px 12px;
+  min-height: 28px;
   border-top: 1px solid var(--border);
   background: var(--panel);
   font-size: 11px;
@@ -2783,8 +3031,12 @@ body {
 }
 
 .status-pill {
-  padding: 1px 8px;
-  border-radius: 8px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+  border-radius: var(--r-lg);
   font-weight: 600;
 }
 
@@ -2815,15 +3067,21 @@ body {
 }
 
 .statusbar-folder {
+  flex: 0 1 auto;
+  min-width: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .statusbar-attention {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   padding: 1px 8px;
-  border-radius: 8px;
+  border-radius: var(--r-lg);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -2836,6 +3094,7 @@ body {
 }
 
 .statusbar-age {
+  flex: none;
   margin-left: auto;
 }
 
@@ -3398,31 +3657,86 @@ body {
 
 /* ---------- app notice (brief auto-dismissing confirmation) ---------- */
 
-.app-notice {
+/* ---------- toasts (leveled, stacked bottom-right) ---------- */
+
+.toasts {
   position: fixed;
-  bottom: 36px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 400;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 16px;
-  font-size: 12px;
-  color: var(--text);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
   pointer-events: none;
-  animation: notice-in 0.15s ease-out;
 }
 
-@keyframes notice-in {
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--dim);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-3);
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: auto;
+  animation: toast-in var(--dur-base) var(--ease-out);
+}
+
+.toast .toast-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast.success {
+  border-left-color: var(--green);
+}
+.toast.success .toast-icon {
+  color: var(--green);
+}
+.toast.info {
+  border-left-color: var(--working);
+}
+.toast.info .toast-icon {
+  color: var(--working);
+}
+.toast.warn {
+  border-left-color: var(--attention);
+}
+.toast.warn .toast-icon {
+  color: var(--attention);
+}
+.toast.error {
+  border-left-color: var(--error);
+}
+.toast.error .toast-icon {
+  color: var(--error);
+}
+
+.toast-text {
+  flex: 1;
+  line-height: 1.4;
+  padding-top: 1px;
+}
+
+.toast .toast-close {
+  flex: none;
+  margin: -2px -4px 0 0;
+  color: var(--dim);
+}
+
+@keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(6px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: none;
   }
 }
 
@@ -5047,10 +5361,23 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 1 auto;
+  overflow: hidden;
   white-space: nowrap;
 }
 
+.statusbar-tokens > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .statusbar-te {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: none;
   border: none;
   font: inherit;
