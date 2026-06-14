@@ -99,6 +99,7 @@ export function ResumePickerDialog(): JSX.Element {
         </div>
         <ConversationList
           folder={picker.folder}
+          selectedId={picker.conversationId}
           onPick={(id) => void resumeConversation(picker.sessionId, id)}
         />
         <div className="modal-actions">

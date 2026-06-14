@@ -16,7 +16,8 @@ export function NewSessionDialog(): JSX.Element {
   const [color, setColor] = useState<string | null>(null)
   const [categoryId, setCategoryId] = useState<string | null>(pending.suggestedCategoryId)
   // null = start a fresh session (the default); else resume this conversation.
-  const [resumeId, setResumeId] = useState<string | null>(null)
+  // Pre-selected when arriving from history recall (a hit with no open session).
+  const [resumeId, setResumeId] = useState<string | null>(pending.resumeConversationId ?? null)
 
   const submit = (): void => {
     void confirm({

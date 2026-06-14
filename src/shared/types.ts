@@ -403,6 +403,24 @@ export interface ConversationSummary {
   preview: string
 }
 
+/**
+ * One conversation matched by the history-recall full-text search (across every
+ * repo, not just one folder). Carries what the recall dialog needs to display
+ * the hit and continue it via `claude --resume <conversationId>`.
+ */
+export interface ConversationSearchHit {
+  /** Transcript filename stem — the id claude resumes with `--resume`. */
+  conversationId: string
+  /** Real working directory the conversation ran in (from the transcript's `cwd`). */
+  cwd: string
+  /** Newest user/assistant timestamp in the conversation, ms since epoch. */
+  lastActivityAt: number
+  /** Total matches of the query in this conversation (capped). */
+  matchCount: number
+  /** Whitespace-collapsed text snippet around the first match. */
+  snippet: string
+}
+
 /** Outcome of saving an exported transcript via the native save dialog. */
 export interface TranscriptExportResult {
   /** True when the user cancelled the save dialog — nothing was written. */

@@ -30,7 +30,7 @@ import { AgentRegistryService } from './AgentRegistryService'
 import { AutoExpandService } from './AutoExpand'
 import { clearBackgroundImage, readBackgroundImage, saveBackgroundImage } from './Background'
 import { ConductorService } from './ConductorService'
-import { listConversations } from './ConversationsService'
+import { listConversations, searchConversations } from './ConversationsService'
 import { detectCategory, readUserMcpServers, scanSkills } from './ClaudeEnv'
 import { FactoryService } from './FactoryService'
 import { FeatureService } from './FeatureService'
@@ -414,6 +414,8 @@ export function registerIpc(
 
   // --- conversations (prior transcripts for the resume picker) ---
   ipcMain.handle('conversations:list', (_e, folder: string) => listConversations(folder))
+  // --- conversation history recall (full-text search across all transcripts) ---
+  ipcMain.handle('conversations:search', (_e, query: string) => searchConversations(query))
 
   // --- transcript export (save dialog + file write, on the renderer's behalf) ---
   ipcMain.handle(

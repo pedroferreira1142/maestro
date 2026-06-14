@@ -2427,6 +2427,53 @@ body {
   color: var(--dim);
 }
 
+/* ---------- conversation history recall (Ctrl+Shift+H) ---------- */
+
+.hr-row {
+  padding: 6px 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.hr-row.sel {
+  background: var(--panel-2);
+  border-left-color: var(--accent);
+}
+
+.hr-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.hr-repo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hr-ago {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.hr-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.hr-row .gs-snippet {
+  display: block;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
 /* ---------- command palette (Ctrl+K) ---------- */
 
 .palette-overlay {

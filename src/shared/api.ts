@@ -7,6 +7,7 @@ import type {
   ConductorImage,
   ConductorMessage,
   ConductorTaskOptions,
+  ConversationSearchHit,
   ConversationSummary,
   DirEntry,
   FactoryArtifactKind,
@@ -397,6 +398,13 @@ export interface Api {
    * Returns [] when the folder has no transcripts.
    */
   listConversations(folder: string): Promise<ConversationSummary[]>
+
+  // conversation history recall (full-text search across ALL past transcripts)
+  /**
+   * Search every past Claude conversation on disk for `query` (case-insensitive),
+   * newest-activity first. Read-only; returns [] for a blank/too-short query.
+   */
+  searchConversations(query: string): Promise<ConversationSearchHit[]>
 
   // custom app background image
   /** Pick an image file and store it as the app background; returns its data URL (null = cancelled). */
