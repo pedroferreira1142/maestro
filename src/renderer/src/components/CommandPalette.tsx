@@ -149,6 +149,18 @@ export function CommandPalette(): JSX.Element {
     if (sessionItems.length > 0) out.push({ title: 'Sessions', items: sessionItems })
 
     const commandItems: PaletteItem[] = []
+    const OVERVIEW_LABEL = 'Repo status overview…'
+    if (matches(OVERVIEW_LABEL)) {
+      commandItems.push({
+        key: 'command:repo-overview',
+        label: OVERVIEW_LABEL,
+        sub: 'git status across all sessions',
+        run: () => {
+          st.closePalette()
+          st.openRepoOverview()
+        }
+      })
+    }
     const BROADCAST_LABEL = 'Broadcast prompt to sessions…'
     if (matches(BROADCAST_LABEL)) {
       commandItems.push({

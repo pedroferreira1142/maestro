@@ -230,6 +230,8 @@ interface AppStore {
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
   broadcastOpen: boolean
+  /** Whether the all-repos git status overview dialog is open. */
+  repoOverviewOpen: boolean
   /** Which surface the main area shows: a session's terminals, the Conductor chat, the Factory, or the Arcade. */
   view: 'session' | 'conductor' | 'factory' | 'arcade'
   /** The Conductor conversation, oldest first (pushed from main). */
@@ -423,6 +425,8 @@ interface AppStore {
   togglePalette(): void
   openBroadcast(): void
   closeBroadcast(): void
+  openRepoOverview(): void
+  closeRepoOverview(): void
   /** Queue one prompt onto several sessions at once (broadcast dialog). */
   broadcastPrompt(sessionIds: string[], text: string): Promise<void>
   /** Switch the main area to the Conductor chat (keeping any current focus). */
@@ -579,6 +583,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   globalSearchOpen: false,
   paletteOpen: false,
   broadcastOpen: false,
+  repoOverviewOpen: false,
   view: 'session',
   conductorMessages: [],
   conductorTagId: null,
@@ -1591,6 +1596,14 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeBroadcast() {
     set({ broadcastOpen: false })
+  },
+
+  openRepoOverview() {
+    set({ repoOverviewOpen: true })
+  },
+
+  closeRepoOverview() {
+    set({ repoOverviewOpen: false })
   },
 
   async broadcastPrompt(sessionIds, text) {

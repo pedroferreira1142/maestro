@@ -1939,6 +1939,116 @@ body {
   padding-left: 8px;
 }
 
+/* ---------- repo status overview dialog ---------- */
+
+.repo-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.repo-overview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.repo-overview-header-actions .btn {
+  font-size: 11px;
+  padding: 1px 8px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.repo-overview-loading {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.repo-overview-list {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.repo-overview-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.repo-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.repo-overview-row:hover {
+  background: var(--panel-2);
+}
+
+.repo-overview-row.flagged {
+  border-left-color: var(--attention);
+}
+
+.repo-overview-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.repo-overview-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-overview-sub {
+  font-size: 11px;
+  color: var(--dim);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-overview-chips {
+  padding: 0;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.repo-overview-note {
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.repo-overview-note.error {
+  color: var(--error);
+}
+
+.repo-overview-subhead {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--dim);
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.repo-overview-row.non-repo .repo-overview-name {
+  color: var(--dim);
+}
+
 /* ---------- global search palette ---------- */
 
 .gs-overlay {
