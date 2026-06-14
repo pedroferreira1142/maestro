@@ -40,6 +40,7 @@ export function focusActiveTerminal(): void {
     st.settingsOpen ||
     st.actionEditor ||
     st.globalSearchOpen ||
+    st.historyRecallOpen ||
     st.paletteOpen ||
     st.broadcastOpen
   )

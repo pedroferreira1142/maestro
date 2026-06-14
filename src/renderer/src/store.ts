@@ -61,6 +61,8 @@ export interface PendingNewSession {
   folder: string
   defaultName: string
   suggestedCategoryId: string | null
+  /** Pre-selected conversation to resume (history recall → new session); '' = fresh. */
+  resumeConversationId?: string
 }
 
 /** Pending state for the parallel-task (worktree) dialog. */
@@ -197,9 +199,10 @@ interface AppStore {
   pendingNewSession: PendingNewSession | null
   /**
    * Resume-picker payload for an existing session ('Resume a different
-   * conversation'); non-null while that picker is open.
+   * conversation'); non-null while that picker is open. `conversationId`, when
+   * set (history-recall hit), pre-highlights that conversation in the list.
    */
-  resumePicker: { sessionId: string; folder: string } | null
+  resumePicker: { sessionId: string; folder: string; conversationId?: string } | null
   /** Parallel-task dialog payload; non-null while the dialog is open. */
   pendingWorktree: PendingWorktree | null
   /** Whether the Settings dialog (repo categories etc.) is open. */
@@ -236,6 +239,8 @@ interface AppStore {
   attentionQueue: AttentionEntry[]
   /** Whether the global scrollback-search palette (Ctrl+Shift+F) is open. */
   globalSearchOpen: boolean
+  /** Whether the conversation history-recall dialog (Ctrl+Shift+H) is open. */
+  historyRecallOpen: boolean
   /** Whether the Ctrl+K command palette is open. */
   paletteOpen: boolean
   /** Whether the broadcast-prompt dialog is open. */
@@ -295,8 +300,12 @@ interface AppStore {
     resumeConversationId?: string | null
   }): Promise<void>
   cancelNewSession(): void
-  /** Open the resume picker for an existing session ('Resume a different conversation'). */
-  openResumePicker(sessionId: string): void
+  /**
+   * Open the resume picker for an existing session ('Resume a different
+   * conversation'). `conversationId`, when given (history-recall hit), pre-
+   * highlights that conversation in the picker's list.
+   */
+  openResumePicker(sessionId: string, conversationId?: string): void
   closeResumePicker(): void
   /**
    * Resume a chosen past conversation in an existing session's claude terminal:
@@ -304,6 +313,12 @@ interface AppStore {
    * `--continue` is added), and respawn it fresh on that conversation.
    */
   resumeConversation(sessionId: string, conversationId: string): Promise<void>
+  /**
+   * Start the new-session flow for `folder` with `conversationId` pre-selected
+   * to resume (history-recall hit whose folder has no open session). Confirming
+   * the dialog creates a session whose claude launches with `--resume <id>`.
+   */
+  resumeConversationInNewSession(folder: string, conversationId: string): Promise<void>
   newWorktreeTask(parentSessionId: string): Promise<void>
   confirmWorktreeTask(opts: {
     name: string
@@ -430,6 +445,8 @@ interface AppStore {
   setBackgroundOpacity(opacity: number): Promise<void>
   openGlobalSearch(): void
   closeGlobalSearch(): void
+  openHistoryRecall(): void
+  closeHistoryRecall(): void
   openPalette(): void
   closePalette(): void
   togglePalette(): void
@@ -590,6 +607,7 @@ export const useStore = create<AppStore>()((set, get) => ({
   backgroundDialogOpen: false,
   attentionQueue: [],
   globalSearchOpen: false,
+  historyRecallOpen: false,
   paletteOpen: false,
   broadcastOpen: false,
   repoOverviewOpen: false,
@@ -730,14 +748,26 @@ export const useStore = create<AppStore>()((set, get) => ({
     set({ pendingNewSession: null })
   },
 
-  openResumePicker(sessionId) {
+  openResumePicker(sessionId, conversationId) {
     const session = get().sessions.find((s) => s.config.id === sessionId)
     if (!session) return
-    set({ resumePicker: { sessionId, folder: session.config.folder } })
+    set({ resumePicker: { sessionId, folder: session.config.folder, conversationId } })
   },
 
   closeResumePicker() {
     set({ resumePicker: null })
+  },
+
+  async resumeConversationInNewSession(folder, conversationId) {
+    const suggestedCategoryId = await window.api.detectCategory(folder)
+    set({
+      pendingNewSession: {
+        folder,
+        defaultName: basename(folder),
+        suggestedCategoryId,
+        resumeConversationId: conversationId
+      }
+    })
   },
 
   async resumeConversation(sessionId, conversationId) {
@@ -1559,6 +1589,14 @@ export const useStore = create<AppStore>()((set, get) => ({
 
   closeGlobalSearch() {
     set({ globalSearchOpen: false })
+  },
+
+  openHistoryRecall() {
+    set({ historyRecallOpen: true })
+  },
+
+  closeHistoryRecall() {
+    set({ historyRecallOpen: false })
   },
 
   closeBackgroundDialog() {

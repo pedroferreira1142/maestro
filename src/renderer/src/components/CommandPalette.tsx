@@ -161,6 +161,18 @@ export function CommandPalette(): JSX.Element {
         }
       })
     }
+    const RECALL_LABEL = 'Search conversation history…'
+    if (matches(RECALL_LABEL)) {
+      commandItems.push({
+        key: 'command:history-recall',
+        label: RECALL_LABEL,
+        sub: 'full-text search across all past conversations',
+        run: () => {
+          st.closePalette()
+          st.openHistoryRecall()
+        }
+      })
+    }
     const BROADCAST_LABEL = 'Broadcast prompt to sessions…'
     if (matches(BROADCAST_LABEL)) {
       commandItems.push({

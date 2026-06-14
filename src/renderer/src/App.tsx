@@ -7,6 +7,7 @@ import { BroadcastDialog } from './components/BroadcastDialog'
 import { Celebration } from './components/Celebration'
 import { CommandPalette } from './components/CommandPalette'
 import { ConductorPane } from './components/ConductorPane'
+import { ConversationRecallDialog } from './components/ConversationRecallDialog'
 import { FactoryPane } from './components/FactoryPane'
 import { DiffViewer } from './components/DiffViewer'
 import { EnvVarsDialog } from './components/EnvVarsDialog'
@@ -67,6 +68,7 @@ export default function App(): JSX.Element {
   const backgroundDataUrl = useStore((s) => s.backgroundDataUrl)
   const backgroundDialogOpen = useStore((s) => s.backgroundDialogOpen)
   const globalSearchOpen = useStore((s) => s.globalSearchOpen)
+  const historyRecallOpen = useStore((s) => s.historyRecallOpen)
   const paletteOpen = useStore((s) => s.paletteOpen)
   const broadcastOpen = useStore((s) => s.broadcastOpen)
   const repoOverviewOpen = useStore((s) => s.repoOverviewOpen)
@@ -157,6 +159,9 @@ export default function App(): JSX.Element {
       } else if (shift && ev.key.toLowerCase() === 'f') {
         ev.preventDefault()
         st.openGlobalSearch()
+      } else if (shift && ev.key.toLowerCase() === 'h') {
+        ev.preventDefault()
+        st.openHistoryRecall()
       } else if (!shift && ev.key.toLowerCase() === 'k') {
         ev.preventDefault()
         st.togglePalette()
@@ -278,6 +283,7 @@ export default function App(): JSX.Element {
       {autoExpandSessionId && <AutoExpandDialog />}
       {backgroundDialogOpen && <BackgroundDialog />}
       {globalSearchOpen && <GlobalSearchDialog />}
+      {historyRecallOpen && <ConversationRecallDialog />}
       {paletteOpen && <CommandPalette />}
       {broadcastOpen && <BroadcastDialog />}
       {repoOverviewOpen && <RepoStatusOverview />}

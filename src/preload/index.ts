@@ -240,6 +240,7 @@ const api: Api = {
   getUsage: () => ipcRenderer.invoke('usage:get'),
   getUsageLimits: () => ipcRenderer.invoke('usage:limits'),
   listConversations: (folder) => ipcRenderer.invoke('conversations:list', folder),
+  searchConversations: (query) => ipcRenderer.invoke('conversations:search', query),
 
   pickBackgroundImage: () => ipcRenderer.invoke('background:pick'),
   getBackgroundImage: () => ipcRenderer.invoke('background:get'),
