@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DirEntry, RepoCheckpoint } from '../../../shared/types'
+import type { DirEntry, RepoCheckpoint, SessionStatus } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
 import { focusActiveTerminal } from '../termRegistry'
 import { promptAndCheckpoint } from './GitPanel'
 import { copyTranscript, exportTranscript, transcriptTarget } from '../transcript'
-import { STATUS_GLYPH } from './SessionSidebar'
+import { StatusIcon } from './Icon'
 
 /** Case-insensitive subsequence ("fuzzy") match: query chars appear in order. */
 export function fuzzyMatch(query: string, text: string): boolean {
@@ -25,8 +25,8 @@ interface PaletteItem {
   label: string
   /** Secondary text: 'branch → baseBranch' for tasks, the shell for actions. */
   sub?: string
-  /** Live status glyph (sessions only), same mapping as the sidebar. */
-  glyph?: { char: string; status: string }
+  /** Live status (sessions only) — rendered as a status icon. */
+  status?: SessionStatus
   run(): void
 }
 
@@ -139,7 +139,7 @@ export function CommandPalette(): JSX.Element {
         key: `session:${s.config.id}`,
         label: s.config.name,
         sub,
-        glyph: { char: STATUS_GLYPH[s.status], status: s.status },
+        status: s.status,
         run: () => {
           st.setActive(s.config.id)
           st.closePalette()
@@ -328,9 +328,11 @@ export function CommandPalette(): JSX.Element {
                     className={`palette-item${i === sel ? ' sel' : ''}`}
                     onClick={it.run}
                   >
-                    <span className={`glyph${it.glyph ? ` status-${it.glyph.status}` : ''}`}>
-                      {it.glyph?.char ?? ''}
-                    </span>
+                    {it.status ? (
+                      <StatusIcon status={it.status} />
+                    ) : (
+                      <span className="glyph" />
+                    )}
                     <span className="palette-label">{it.label}</span>
                     {it.sub && <span className="palette-sub">{it.sub}</span>}
                   </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { orderedSessions, useStore } from '../store'
-import { STATUS_GLYPH } from './SessionSidebar'
+import { StatusIcon } from './Icon'
 
 /**
  * Dialog that queues one prompt onto several sessions at once. Only sessions
@@ -80,7 +80,7 @@ export function BroadcastDialog(): JSX.Element {
                     checked={checked.has(s.config.id)}
                     onChange={() => toggle(s.config.id)}
                   />
-                  <span className={`glyph status-${s.status}`}>{STATUS_GLYPH[s.status]}</span>
+                  <StatusIcon status={s.status} />
                   <span className="broadcast-name">{s.config.name}</span>
                   {wt && (
                     <span className="broadcast-sub">

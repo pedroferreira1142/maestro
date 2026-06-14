@@ -1,24 +1,30 @@
 import { useRef, useState } from 'react'
-import type {
-  SessionInfo,
-  SessionStatus,
-  TerminalInfo,
-  WatchdogAlert,
-  WorktreeMeta
-} from '../../../shared/types'
+import {
+  ArrowDown,
+  ArrowUp,
+  Clock,
+  Compass,
+  GitBranch,
+  GitFork,
+  Hammer,
+  Hourglass,
+  Image as ImageIcon,
+  ListPlus,
+  LoaderCircle,
+  Megaphone,
+  Plus,
+  Settings,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+  X,
+  Zap
+} from 'lucide-react'
+import type { SessionInfo, SessionStatus, TerminalInfo, WorktreeMeta } from '../../../shared/types'
 import { orderedSessions, useStore } from '../store'
+import { Icon, StatusIcon } from './Icon'
 import { UsageWidget } from './UsageWidget'
 import { XpHud } from './XpHud'
-
-export const STATUS_GLYPH: Record<SessionStatus, string> = {
-  starting: '◌',
-  working: '⟳',
-  'needs-attention': '●',
-  done: '✓',
-  idle: '○',
-  exited: '✕',
-  error: '!'
-}
 
 /** Human-readable status, for tooltips and the status bar. */
 export const STATUS_LABEL: Record<SessionStatus, string> = {
@@ -29,12 +35,6 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   idle: 'Idle',
   exited: 'Exited',
   error: 'Error'
-}
-
-/** Glyph for each watchdog alert — distinct from the instantaneous status glyphs. */
-const WATCHDOG_GLYPH: Record<WatchdogAlert, string> = {
-  stalled: '⏱',
-  unanswered: '⚠'
 }
 
 /**
@@ -50,7 +50,7 @@ function WatchdogBadge({ terminal }: { terminal: TerminalInfo }): JSX.Element {
       : `Unanswered — awaiting input ${mins}m`
   return (
     <span className={`watchdog-badge ${alert}`} title={tip}>
-      {WATCHDOG_GLYPH[alert]}
+      <Icon icon={alert === 'stalled' ? Clock : TriangleAlert} size={12} />
     </span>
   )
 }
@@ -184,7 +184,7 @@ function QueuePopover({
                 disabled={i === 0}
                 onClick={() => void queueMove(id, q.id, -1)}
               >
-                ↑
+                <Icon icon={ArrowUp} size={13} />
               </button>
               <button
                 className="btn ghost"
@@ -192,14 +192,14 @@ function QueuePopover({
                 disabled={i === queue.length - 1}
                 onClick={() => void queueMove(id, q.id, 1)}
               >
-                ↓
+                <Icon icon={ArrowDown} size={13} />
               </button>
               <button
                 className="btn ghost"
                 title="Delete prompt"
                 onClick={() => void queueRemove(id, q.id)}
               >
-                ✕
+                <Icon icon={Trash2} size={13} />
               </button>
             </div>
           ))}
@@ -266,19 +266,24 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
       }`}
       style={session.config.color ? { borderLeftColor: session.config.color } : undefined}
       title={`${session.config.folder}\n${STATUS_LABEL[session.status]} · Ctrl+${index + 1}`}
+      tabIndex={0}
       onClick={() => setActive(id)}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault()
+          setActive(id)
+        }
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         setMenu({ x: e.clientX, y: e.clientY })
       }}
     >
-      <span
-        className={`glyph status-${session.status}`}
+      <StatusIcon
+        status={session.status}
         title={STATUS_LABEL[session.status]}
-        aria-label={STATUS_LABEL[session.status]}
-      >
-        {STATUS_GLYPH[session.status]}
-      </span>
+        label={STATUS_LABEL[session.status]}
+      />
       {watchdogTerm && <WatchdogBadge terminal={watchdogTerm} />}
       <div className="session-meta">
         {editing ? (
@@ -299,7 +304,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
           />
         ) : (
           <span className="session-name" onDoubleClick={() => setEditing(true)}>
-            {worktree && <span className="worktree-mark">⑂ </span>}
+            {worktree && <Icon icon={GitBranch} className="worktree-mark" size={12} />}
             {session.config.name}
           </span>
         )}
@@ -321,7 +326,9 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
                 onClick={() => void completeWorktree(id)}
               >
                 {worktree.completion === 'pr' ? 'PR' : 'Merge'}
-                {worktree.autoComplete && !worktree.autoCompletedAs ? ' ⏳' : ''}
+                {worktree.autoComplete && !worktree.autoCompletedAs && (
+                  <Icon icon={Hourglass} size={11} />
+                )}
               </button>
             </>
           ) : (
@@ -358,7 +365,8 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
           setQueueAnchor(queueBtnRef.current?.getBoundingClientRect() ?? null)
         }}
       >
-        ☰{queueCount > 0 && <span className="queue-badge">{queueCount}</span>}
+        <Icon icon={ListPlus} size={14} />
+        {queueCount > 0 && <span className="queue-badge">{queueCount}</span>}
       </button>
       {queueAnchor && (
         <QueuePopover session={session} anchor={queueAnchor} onClose={() => setQueueAnchor(null)} />
@@ -416,7 +424,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
             void newWorktreeTask(id)
           }}
         >
-          ⑂
+          <Icon icon={GitFork} size={14} />
         </button>
       )}
       <button
@@ -428,7 +436,7 @@ function SessionEntry({ session, index }: { session: SessionInfo; index: number 
           else void closeSession(id)
         }}
       >
-        ✕
+        <Icon icon={X} size={14} />
       </button>
     </div>
   )
@@ -466,7 +474,7 @@ function FactoryEntry(): JSX.Element {
       onClick={() => (suggestionCount > 0 ? openSuggestions() : openFactory())}
     >
       <span className={`glyph factory-glyph${busy ? ' status-working' : ''}`}>
-        {busy ? '⟳' : '⚒'}
+        <Icon icon={busy ? LoaderCircle : Hammer} />
         {suggestionCount > 0 && (
           <span className="queue-badge factory-suggest-badge">{suggestionCount}</span>
         )}
@@ -495,7 +503,9 @@ function ConductorEntry(): JSX.Element {
       title="Maestro — AI overview & orchestrator across all your sessions"
       onClick={openConductor}
     >
-      <span className={`glyph${busy ? ' status-working' : ''}`}>{busy ? '⟳' : '✦'}</span>
+      <span className={`glyph${busy ? ' status-working' : ''}`}>
+        <Icon icon={busy ? LoaderCircle : Compass} />
+      </span>
       <div className="session-meta">
         <span className="session-name">Maestro</span>
         <span className="session-folder">AI conductor · all sessions</span>
@@ -552,40 +562,48 @@ export function SessionSidebar(): JSX.Element {
         <span>Sessions</span>
         <span className="row">
           <button
-            className="btn ghost"
+            className="btn ghost icon-btn"
             title="Features & specs for the active session"
             disabled={!activeId}
             onClick={() => activeId && void openFeatures(activeId)}
           >
-            ✦
+            <Icon icon={Sparkles} size={15} label="Features & specs" />
           </button>
           <button
-            className="btn ghost"
+            className="btn ghost icon-btn"
             title="Auto-expand features for the active session"
             disabled={!activeId}
             onClick={() => activeId && void openAutoExpand(activeId)}
           >
-            ⚡
+            <Icon icon={Zap} size={15} label="Auto-expand features" />
           </button>
           <button
-            className="btn ghost"
+            className="btn ghost icon-btn"
             title="Broadcast a prompt to multiple sessions"
             onClick={openBroadcast}
           >
-            ⇶
-          </button>
-          <button className="btn ghost" title="Background image" onClick={openBackgroundDialog}>
-            ◫
-          </button>
-          <button className="btn ghost" title="Settings" onClick={() => openSettings()}>
-            ⚙
+            <Icon icon={Megaphone} size={15} label="Broadcast a prompt" />
           </button>
           <button
-            className="btn ghost"
+            className="btn ghost icon-btn"
+            title="Background image"
+            onClick={openBackgroundDialog}
+          >
+            <Icon icon={ImageIcon} size={15} label="Background image" />
+          </button>
+          <button
+            className="btn ghost icon-btn"
+            title="Settings"
+            onClick={() => openSettings()}
+          >
+            <Icon icon={Settings} size={15} label="Settings" />
+          </button>
+          <button
+            className="btn ghost icon-btn"
             title="New session (Ctrl+Shift+N)"
             onClick={() => void newSession()}
           >
-            ＋
+            <Icon icon={Plus} size={15} label="New session" />
           </button>
         </span>
       </div>
