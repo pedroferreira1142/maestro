@@ -1,11 +1,32 @@
 import { useEffect, useState } from 'react'
 import type {
   SentinelConfig,
+  SentinelFinding,
   SentinelRun,
   SentinelSeverity,
   SessionInfo
 } from '../../../shared/types'
 import { useStore } from '../store'
+
+/**
+ * Compose a focused, self-contained fix prompt from a single finding.
+ * Draws on the finding's title and detail, and references the exact
+ * repo-relative file only when one is present (no placeholder otherwise).
+ * Never pulls in sibling findings or run-level summary text.
+ */
+function composeFixPrompt(f: SentinelFinding): string {
+  const lines = [
+    'A code sentinel flagged the following issue. Please fix it.',
+    '',
+    `Issue: ${f.title}`,
+    '',
+    f.detail
+  ]
+  if (f.file) {
+    lines.push('', `Relevant file: ${f.file}`)
+  }
+  return lines.join('\n')
+}
 
 const SEVERITY_RANK: Record<SentinelSeverity, number> = { info: 0, warning: 1, critical: 2 }
 
@@ -50,6 +71,29 @@ function StatusGlyph({ run, enabled }: { run: SentinelRun | null; enabled: boole
 
 function RunDetails({ run }: { run: SentinelRun }): JSX.Element {
   const openFile = useStore((s) => s.openFile)
+  const queueAdd = useStore((s) => s.queueAdd)
+  // Transient per-finding confirmation, keyed by finding index.
+  const [acked, setAcked] = useState<{ index: number; kind: 'queued' | 'copied' } | null>(null)
+
+  const ack = (index: number, kind: 'queued' | 'copied'): void => {
+    setAcked({ index, kind })
+    window.setTimeout(() => {
+      // Only clear if still showing this exact ack (avoid clobbering a newer one).
+      setAcked((cur) => (cur && cur.index === index && cur.kind === kind ? null : cur))
+    }, 2000)
+  }
+
+  const fixWithClaude = (index: number, f: SentinelFinding): void => {
+    // Always target the finding's owning session, never the active one.
+    void queueAdd(run.sessionId, composeFixPrompt(f))
+    ack(index, 'queued')
+  }
+
+  const copyAsPrompt = (index: number, f: SentinelFinding): void => {
+    void navigator.clipboard.writeText(composeFixPrompt(f))
+    ack(index, 'copied')
+  }
+
   return (
     <div className="sentinel-run">
       <div className="sentinel-run-meta">
@@ -81,6 +125,33 @@ function RunDetails({ run }: { run: SentinelRun }): JSX.Element {
               {f.file}
             </div>
           )}
+          <div className="sentinel-finding-actions">
+            <button
+              className="btn ghost sentinel-fix-btn"
+              title="Queue a fix prompt for this session's Claude terminal"
+              onClick={(e) => {
+                e.stopPropagation()
+                fixWithClaude(i, f)
+              }}
+            >
+              Fix with Claude
+            </button>
+            <button
+              className="btn ghost sentinel-fix-btn"
+              title="Copy the fix prompt to the clipboard"
+              onClick={(e) => {
+                e.stopPropagation()
+                copyAsPrompt(i, f)
+              }}
+            >
+              Copy as prompt
+            </button>
+            {acked?.index === i && (
+              <span className="sentinel-fix-ack">
+                {acked.kind === 'queued' ? 'Queued' : 'Copied'}
+              </span>
+            )}
+          </div>
         </div>
       ))}
     </div>
